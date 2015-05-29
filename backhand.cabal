@@ -46,7 +46,7 @@ library
   default-language: Haskell2010
   ghc-options: -fprof-auto -rtsopts -threaded -Wall
     -fno-warn-unused-do-bind -fno-warn-orphans
-  --exposed-modules: 
+  exposed-modules: Backhand.Core
 
   -- Other library packages from which modules are imported.
   build-depends: base >=4.8   && <4.9
