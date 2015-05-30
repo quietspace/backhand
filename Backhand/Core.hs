@@ -14,6 +14,8 @@ import Control.Monad.Trans.Resource
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 
+import Debug.Trace
+
 import Backhand.Room
 
 -- | The object which holds a TVar containing the list of rooms present on this
@@ -22,39 +24,43 @@ import Backhand.Room
 --
 -- This is essentially Backhand's core state object. The rooms list is accessed
 -- by each connection thread individually.
-data (Room r) => BackhandCore r = BackhandCore
-    { coreRooms :: TVar (Map String (TVar r)) -- ^ Map of room IDs to room state TVars.
+data BackhandCore = BackhandCore
+    { coreRooms :: TVar (Map String (TVar Room)) -- ^ Map of room IDs to room state TVars.
+    , coreMkRoom :: Room
     }
 
 -- | Initializes a new @BackhandCore@ object.
-initCore :: (Room r) => IO (BackhandCore r)
+initCore :: IO BackhandCore
 initCore = do
     rooms <- newTVarIO M.empty
-    return $ BackhandCore rooms
+    return BackhandCore
+        { coreRooms = rooms
+        , coreMkRoom = mkRoom
+        }
 
 
 -- | STM action which finds the room with the given ID if it exists. If the room
 -- does not exist, the action will retry.
-findRoomSTM :: (Room r) => BackhandCore r -> String -> STM (TVar r)
-findRoomSTM core roomId = do
+findRoomSTM :: BackhandCore -> String -> STM (TVar Room)
+findRoomSTM core roomId = trace "Finding room." $ do
     rooms <- readTVar (coreRooms core)
-    when (roomId `M.notMember` rooms) retry
+    when (roomId `M.notMember` rooms) (trace "No room found. Retrying." retry)
     return (rooms M.! roomId)
 
 -- | STM action which creates a new room with the given ID and adds it to the
 -- given core's room list. Returns a @TVar@ with the newly created room in it.
 -- If a room with the given ID already exists, this action will retry.
-createRoomSTM :: (Room r) => BackhandCore r -> String -> STM (TVar r)
-createRoomSTM core roomId = do
+createRoomSTM :: BackhandCore -> String -> STM (TVar Room)
+createRoomSTM core roomId = trace "Creating room." $ do
     rooms <- readTVar (coreRooms core)
     when (roomId `M.member` rooms) retry
-    room <- newTVar initRoom
+    room <- newTVar (coreMkRoom core)
     modifyTVar (coreRooms core) (M.insert roomId room)
     return room
 
 -- | STM action which removes the given room from the core's room list.
-destroyRoomSTM :: (Room r) => BackhandCore r -> TVar r -> STM ()
-destroyRoomSTM core roomTVar = do
+destroyRoomSTM :: BackhandCore -> TVar Room -> STM ()
+destroyRoomSTM core roomTVar = trace "Destroying room." $ do
     room <- readTVar roomTVar
     unless (isEmptyRoom room) $ error "Not Implemented: Can only remove empty rooms."
     modifyTVar (coreRooms core) (M.filter (/=roomTVar))
@@ -72,8 +78,7 @@ destroyRoomSTM core roomTVar = do
 -- The function returns a @RoomHandle@ which can be used to interface with the
 -- room and a @ReleaseKey@ which can be used with the resource monad to
 -- disconnect from the room.
-joinRoom :: (MonadResource m, Room r) =>
-            BackhandCore r -> String -> m (RoomHandle r)
+joinRoom :: (MonadResource m) => BackhandCore -> String -> m RoomHandle
 joinRoom core roomId =
     setReleaseKey <$> allocate doJoin doExit
   where
@@ -89,8 +94,7 @@ joinRoom core roomId =
 -- disconnecting, it will be removed from existence. This function usually
 -- doesn't need to be called manually, as the room handle will be disconnected
 -- automatically by the resource monad.
-partRoom :: (MonadIO m, Room r) =>
-            BackhandCore r -> RoomHandle r -> m ()
+partRoom :: (MonadIO m) => BackhandCore -> RoomHandle -> m ()
 partRoom core roomHand = do
     liftIO $ doPart
     -- Ensure the room handle is no longer protected by the resource monad. This
@@ -100,6 +104,6 @@ partRoom core roomHand = do
   where
     doPart = atomically $ do
         -- TODO: Somehow invalidate the room handle so it cannot be used after this.
-        room <- readTVar (rhRoom roomHand)
         partRoomSTM roomHand
+        room <- readTVar (rhRoom roomHand)
         when (isEmptyRoom room) $ destroyRoomSTM core (rhRoom roomHand)

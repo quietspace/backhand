@@ -42,11 +42,27 @@ build-type:          Simple
 -- Constraint on the version of Cabal needed to build this package.
 cabal-version:       >=1.10
 
+executable backhand
+  main-is: Main.hs
+  default-language: Haskell2010
+  ghc-options: -fprof-auto -rtsopts -threaded -Wall
+    -fno-warn-unused-do-bind -fno-warn-orphans
+  build-depends: base >=4.8 && <4.9
+               , backhand
+               , containers
+               , stm
+               , mtl
+               , resourcet
+               , websockets
+               , aeson
+               , text
+
 library
   default-language: Haskell2010
   ghc-options: -fprof-auto -rtsopts -threaded -Wall
     -fno-warn-unused-do-bind -fno-warn-orphans
   exposed-modules: Backhand.Core
+                 , Backhand.Connection
 
   -- Other library packages from which modules are imported.
   build-depends: base >=4.8   && <4.9
