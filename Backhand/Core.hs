@@ -1,9 +1,11 @@
+{-# LANGUAGE OverloadedStrings #-}
 -- | This module implements Backhand's "core" object---the data structure which
 -- contains the list of rooms.
 module Backhand.Core
     ( BackhandCore
     , initCore
     , joinRoom
+    , partRoom
     ) where
 
 import Control.Applicative
@@ -13,6 +15,7 @@ import Control.Monad.Trans
 import Control.Monad.Trans.Resource
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
+import qualified Data.Text as T
 
 import Debug.Trace
 
@@ -25,7 +28,7 @@ import Backhand.Room
 -- This is essentially Backhand's core state object. The rooms list is accessed
 -- by each connection thread individually.
 data BackhandCore = BackhandCore
-    { coreRooms :: TVar (Map String (TVar Room)) -- ^ Map of room IDs to room state TVars.
+    { coreRooms :: TVar (Map T.Text (TVar Room)) -- ^ Map of room IDs to room state TVars.
     , coreMkRoom :: Room
     }
 
@@ -41,7 +44,7 @@ initCore = do
 
 -- | STM action which finds the room with the given ID if it exists. If the room
 -- does not exist, the action will retry.
-findRoomSTM :: BackhandCore -> String -> STM (TVar Room)
+findRoomSTM :: BackhandCore -> RoomId -> STM (TVar Room)
 findRoomSTM core roomId = trace "Finding room." $ do
     rooms <- readTVar (coreRooms core)
     when (roomId `M.notMember` rooms) (trace "No room found. Retrying." retry)
@@ -50,7 +53,7 @@ findRoomSTM core roomId = trace "Finding room." $ do
 -- | STM action which creates a new room with the given ID and adds it to the
 -- given core's room list. Returns a @TVar@ with the newly created room in it.
 -- If a room with the given ID already exists, this action will retry.
-createRoomSTM :: BackhandCore -> String -> STM (TVar Room)
+createRoomSTM :: BackhandCore -> RoomId -> STM (TVar Room)
 createRoomSTM core roomId = trace "Creating room." $ do
     rooms <- readTVar (coreRooms core)
     when (roomId `M.member` rooms) retry
@@ -78,7 +81,7 @@ destroyRoomSTM core roomTVar = trace "Destroying room." $ do
 -- The function returns a @RoomHandle@ which can be used to interface with the
 -- room and a @ReleaseKey@ which can be used with the resource monad to
 -- disconnect from the room.
-joinRoom :: (MonadResource m) => BackhandCore -> String -> m RoomHandle
+joinRoom :: (MonadResource m) => BackhandCore -> RoomId -> m RoomHandle
 joinRoom core roomId =
     setReleaseKey <$> allocate doJoin doExit
   where
@@ -91,9 +94,7 @@ joinRoom core roomId =
     doExit = partRoom core
 
 -- | Disconnects the given room handle. If the room is empty after
--- disconnecting, it will be removed from existence. This function usually
--- doesn't need to be called manually, as the room handle will be disconnected
--- automatically by the resource monad.
+-- disconnecting, it will be removed from existence.
 partRoom :: (MonadIO m) => BackhandCore -> RoomHandle -> m ()
 partRoom core roomHand = do
     liftIO $ doPart

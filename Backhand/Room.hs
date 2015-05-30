@@ -1,9 +1,9 @@
-{-# LANGUAGE Arrows #-}
 module Backhand.Room where
 
 import Control.Concurrent.STM
 import Control.Monad.Trans.Resource
 import Data.Aeson
+import qualified Data.Text as T
 
 import Debug.Trace
 
@@ -25,6 +25,8 @@ data Client = Client
 instance Eq Client where
     a == b = cId a == cId b
 
+
+type RoomId = T.Text
 
 -- | Container object for a room's state. This holds the "internal state" of the
 -- room; stuff internal to Backhand. It also holds the @Auto@ which is
