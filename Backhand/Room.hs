@@ -2,6 +2,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module Backhand.Room where
 
+import Control.Applicative -- Implicit in GHC 7.10
 import Control.Concurrent.STM
 import Control.Monad.Reader
 import Control.Monad.Trans.Resource
