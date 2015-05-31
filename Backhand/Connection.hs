@@ -4,6 +4,9 @@ module Backhand.Connection
     ( websockHandler
     ) where
 
+import Control.Applicative
+import Control.Concurrent.Async
+import Control.Concurrent.STM
 import Control.Monad
 import Control.Monad.State
 import Control.Monad.Trans.Resource
@@ -15,7 +18,6 @@ import qualified Data.Text as T
 import Network.WebSockets
 
 import Backhand.Core
-import Backhand.Room
 
 
 -- | Internal state object for WebSocket threads.
@@ -47,6 +49,7 @@ data ClientWebSockMsg
     | MsgRoom RoomId Object -- ^ "msg" - Send the given JSON object to the room
                             -- with the given ID. Should respond with an error
                             -- if no such room exists.
+    deriving (Show)
 
 -- | Data structure which represents a message sent from the server over the
 -- WebSocket.
@@ -56,6 +59,7 @@ data ServerWebSockMsg
     | MsgFromRoom RoomId Object -- ^ "msg" - Received the given message from the
                                 -- given room.
     | WebSockError T.Text -- ^ Indicates some sort of error occurred.
+    deriving (Show)
 
 
 -- | A WebSocket `ServerApp` which handles incoming connections and connects
@@ -72,16 +76,32 @@ websockHandler core pending = do
     doAccept :: IO ()
     doAccept = do
       conn <- acceptRequest pending
-      evalStateT (runResourceT websockLoop) (initSockState core conn)
-
+      evalStateT (runResourceT $ websockLoop) (initSockState core conn)
 
 -- | Main loop for handling websocket connections.
 websockLoop :: WebSockM ()
-websockLoop = forever doLoop
+websockLoop = do
+    conn <- gets wssConn
+    wsMsgs <- liftIO newTQueueIO
+    (liftIO . link . snd) =<< allocate (async (recvMsgs conn wsMsgs)) cancel
+    forever $ doLoop wsMsgs
   where
-    doLoop :: WebSockM ()
-    doLoop = recvMessage >>= handleMessage
+    recvMsgs conn wsMsgs = forever $ do
+      recvMessage conn >>= (atomically . writeTQueue wsMsgs)
 
+    doLoop :: TQueue ClientWebSockMsg -> WebSockM ()
+    doLoop wsMsgs = do
+      rooms <- gets wssRoomHands
+      -- Wait for anything to happen.
+      msg <- liftIO $ atomically (    (Left <$> waitRoomMsgs rooms)
+                                  <|> (Right <$> readTQueue wsMsgs))
+      case msg of
+        Left roomMsg -> sendMessage roomMsg
+        Right clientMsg -> handleMessage clientMsg
+
+    recvTaggedMsg :: (RoomId, RoomHandle) -> STM ServerWebSockMsg
+    recvTaggedMsg (roomId, hand) = MsgFromRoom roomId <$> recvRoomMsgSTM hand
+    waitRoomMsgs rooms = foldr (<|>) retry $ map recvTaggedMsg $ M.toList rooms
 
 handleMessage :: ClientWebSockMsg -> WebSockM ()
 handleMessage (JoinRoom roomId) = do
@@ -101,8 +121,9 @@ handleMessage (PartRoom roomId) = do
     partRoom core roomHand
     sendMessage $ PartedRoom roomId
     liftIO $ putStrLn ("Parted from room " ++ show roomId)
-handleMessage (MsgRoom _ _) =
-    liftIO $ putStrLn "MsgRoom is not implemented."
+handleMessage (MsgRoom roomId msg) = do
+    roomHand <- gets ((M.! roomId) . wssRoomHands)
+    msgRoom roomHand msg
 
 
 -- | Sends a `ServerWebSockMsg` to the connected client.
@@ -117,11 +138,13 @@ sendError = sendMessage . WebSockError
 -- | Receives a `ClientWebSockMsg` from the connected client. If the message
 -- cannot be decoded, sends an error to the client and waits for another
 -- message. This process will repeat until a valid message is received.
-recvMessage :: WebSockM ClientWebSockMsg
-recvMessage = do
-    conn <- gets wssConn
-    msgM <- decode <$> liftIO (receiveData conn)
-    maybe (sendError "Failed to decode message." >> recvMessage) return msgM
+recvMessage :: Connection -> IO ClientWebSockMsg
+recvMessage conn = do
+    msg <- eitherDecode <$> liftIO (receiveData conn)
+    either (\err -> sendError' ("Failed to decode message: " <> T.pack err) >> recvMessage conn)
+           return msg
+  where
+    sendError' = sendTextData conn . encode . WebSockError
 
 
 -------- Some JSON encoding/decoding stuff --------
@@ -134,8 +157,8 @@ instance FromJSON ClientWebSockMsg where
           "part" -> PartRoom <$> v .: "room"
           "msg"  -> MsgRoom  <$> v .: "room"
                              <*> v .: "msg"
-          _ -> mzero
-    parseJSON _ = mzero
+          _ -> fail "unknown message type"
+    parseJSON _ = fail "expected an object"
 
 
 instance ToJSON ServerWebSockMsg where

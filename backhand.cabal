@@ -49,6 +49,7 @@ executable backhand
     -fno-warn-unused-do-bind -fno-warn-orphans
   build-depends: base >=4.7 && <4.9
                , backhand
+               , async
                , containers
                , stm
                , mtl
@@ -68,6 +69,7 @@ library
   -- Other library packages from which modules are imported.
   build-depends: base >=4.7   && <4.9
                -- Concurrency
+               , async
                , stm
                , stm-chans
                -- Monads and Stuff

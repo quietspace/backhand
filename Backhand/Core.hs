@@ -6,6 +6,13 @@ module Backhand.Core
     , initCore
     , joinRoom
     , partRoom
+
+    -- * Communication With Rooms
+    , RoomHandle
+    , RoomId
+    , RoomMsg
+    , msgRoom
+    , recvRoomMsgSTM
     ) where
 
 import Control.Applicative
@@ -22,14 +29,14 @@ import Debug.Trace
 import Backhand.Room
 
 -- | The object which holds a TVar containing the list of rooms present on this
--- server. Each entry in the list is a TVar containing the state of a room. The
--- type parameter @r@ determines the type of the rooms.
+-- server. Each entry in the list is a room object which contains TVars storing
+-- the state of the room.
 --
 -- This is essentially Backhand's core state object. The rooms list is accessed
 -- by each connection thread individually.
 data BackhandCore = BackhandCore
-    { coreRooms :: TVar (Map T.Text (TVar Room)) -- ^ Map of room IDs to room state TVars.
-    , coreMkRoom :: Room
+    { coreRooms :: TVar (Map T.Text Room) -- ^ Map of room IDs to rooms.
+    , coreMkRoom :: RoomId -> STM Room
     }
 
 -- | Initializes a new @BackhandCore@ object.
@@ -38,13 +45,13 @@ initCore = do
     rooms <- newTVarIO M.empty
     return BackhandCore
         { coreRooms = rooms
-        , coreMkRoom = mkRoom
+        , coreMkRoom = \roomId -> mkRoom roomId testRoomHandler 0
         }
 
 
 -- | STM action which finds the room with the given ID if it exists. If the room
 -- does not exist, the action will retry.
-findRoomSTM :: BackhandCore -> RoomId -> STM (TVar Room)
+findRoomSTM :: BackhandCore -> RoomId -> STM Room
 findRoomSTM core roomId = trace "Finding room." $ do
     rooms <- readTVar (coreRooms core)
     when (roomId `M.notMember` rooms) (trace "No room found. Retrying." retry)
@@ -53,20 +60,20 @@ findRoomSTM core roomId = trace "Finding room." $ do
 -- | STM action which creates a new room with the given ID and adds it to the
 -- given core's room list. Returns a @TVar@ with the newly created room in it.
 -- If a room with the given ID already exists, this action will retry.
-createRoomSTM :: BackhandCore -> RoomId -> STM (TVar Room)
+createRoomSTM :: BackhandCore -> RoomId -> STM Room
 createRoomSTM core roomId = trace "Creating room." $ do
-    rooms <- readTVar (coreRooms core)
-    when (roomId `M.member` rooms) retry
-    room <- newTVar (coreMkRoom core)
+    rooms <- readTVar $ coreRooms core
+    when (roomId `M.member` rooms) $ fail "Room already exists."
+    room <- coreMkRoom core roomId
     modifyTVar (coreRooms core) (M.insert roomId room)
     return room
 
 -- | STM action which removes the given room from the core's room list.
-destroyRoomSTM :: BackhandCore -> TVar Room -> STM ()
-destroyRoomSTM core roomTVar = trace "Destroying room." $ do
-    room <- readTVar roomTVar
-    unless (isEmptyRoom room) $ error "Not Implemented: Can only remove empty rooms."
-    modifyTVar (coreRooms core) (M.filter (/=roomTVar))
+destroyRoomSTM :: BackhandCore -> Room -> STM ()
+destroyRoomSTM core room = trace "Destroying room." $ do
+    isEmpty <- isEmptyRoom room
+    unless isEmpty $ fail "Not Implemented: Can only remove empty rooms."
+    modifyTVar (coreRooms core) (M.filter (\r -> rId r /= rId room))
 
 -- TODO: Disconnect clients when room is destroyed. For now, we'll just throw an
 -- error if anyone is still in a room, since we have no reason to remove
@@ -106,5 +113,5 @@ partRoom core roomHand = do
     doPart = atomically $ do
         -- TODO: Somehow invalidate the room handle so it cannot be used after this.
         partRoomSTM roomHand
-        room <- readTVar (rhRoom roomHand)
-        when (isEmptyRoom room) $ destroyRoomSTM core (rhRoom roomHand)
+        isEmpty <- isEmptyRoom $ rhRoom roomHand
+        when isEmpty $ destroyRoomSTM core (rhRoom roomHand)
