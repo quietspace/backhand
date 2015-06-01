@@ -27,6 +27,7 @@ import qualified Data.Text as T
 import Debug.Trace
 
 import Backhand.Room
+import Backhand.Behavior.Chat
 
 -- | The object which holds a TVar containing the list of rooms present on this
 -- server. Each entry in the list is a room object which contains TVars storing
@@ -45,7 +46,7 @@ initCore = do
     rooms <- newTVarIO M.empty
     return BackhandCore
         { coreRooms = rooms
-        , coreMkRoom = \roomId -> mkRoom roomId testRoomHandler 0
+        , coreMkRoom = \roomId -> mkRoom roomId chatRoomBehavior
         }
 
 
@@ -95,9 +96,12 @@ joinRoom core roomId =
     -- Takes a tuple of release key and room handle and returns the room handle
     -- with the key stored inside it.
     setReleaseKey (rk, rh) = rh { rhReleaseKey = rk }
-    doJoin = atomically (joinExisting <|> createAndJoin)
-    joinExisting = findRoomSTM core roomId >>= joinRoomSTM
-    createAndJoin = createRoomSTM core roomId >>= joinRoomSTM
+    doJoin = do
+      (room, hand) <- atomically (joinExisting <|> createAndJoin)
+      updateClientList room
+      return hand
+    joinExisting = findRoomSTM core roomId >>= (\r -> (,) r <$> joinRoomSTM r)
+    createAndJoin = createRoomSTM core roomId >>= (\r -> (,) r <$> joinRoomSTM r)
     doExit = partRoom core
 
 -- | Disconnects the given room handle. If the room is empty after
@@ -105,6 +109,7 @@ joinRoom core roomId =
 partRoom :: (MonadIO m) => BackhandCore -> RoomHandle -> m ()
 partRoom core roomHand = do
     liftIO $ doPart
+    liftIO $ updateClientList (rhRoom roomHand)
     -- Ensure the room handle is no longer protected by the resource monad. This
     -- prevents accidental duplicate disconnects.
     _ <- unprotect (rhReleaseKey roomHand)

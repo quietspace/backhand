@@ -1,5 +1,6 @@
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 module Backhand.Room where
 
 import Control.Applicative -- Implicit in GHC 7.10
@@ -8,78 +9,115 @@ import Control.Monad.Reader
 import Control.Monad.Trans.Resource
 import Data.Aeson
 import qualified Data.Text as T
+import Reactive.Banana
+import Reactive.Banana.Frameworks
+
+import System.IO.Unsafe
 
 import Debug.Trace
 
 -- | Creates a new room with the given event handler and initial state.
-mkRoom :: forall s. RoomId -> RoomEventHandler s -> s -> STM Room
-mkRoom roomId handler initState = do
-    clients <- newTVar []
-    nextCId <- newTVar 0
-    hState <- newTVar initState
-    return Room
-        { rId = roomId
-        , rClients = clients
-        , rNextClientId = nextCId
-        , rEvtHandler = handler
-        , rHandlerState = hState
-        }
+mkRoom :: RoomId -> RoomBehavior -> STM Room
+mkRoom roomId behavior = do
+  clients <- newTVar []
+  nextCId <- newTVar 0
+  -- Unsafe IO is necessary here to keep this function as an STM
+  -- action. Hopefully won't cause problems.
+  (handleMsg, handleClientsChange) <- return $ unsafePerformIO $ do
+    (addMsgEvt, handleMsg) <- newAddHandler
+    (addClientListEvt, handleClientsChange) <- newAddHandler
+    network <- behavior addMsgEvt addClientListEvt
+    actuate network
+    return (handleMsg, handleClientsChange)
+  return Room
+         { rId = roomId
+         , rClients = clients
+         , rNextClientId = nextCId
+         , rHandleMsg = handleMsg
+         , rHandleClients = handleClientsChange
+         }
+
 
 -------- Event Handler Stuff --------
 
--- | Data structure which represents an event that the room handler should handle.
-data RoomEvent
-    = ClientMsg Client RoomMsg -- ^ A message from a client.
+-- | Data structure which represents a message from a client.
+data ClientMsg = ClientMsg
+    { clientMsgSender :: Client
+    , clientMsgData   :: MsgData
+    } deriving (Show)
 
 
--- | Type for a room's event handler. These handlers are responsible for a
--- particular room's behavior. The room handler is a function which takes an
--- event, performs some actions in response to the event, and then returns a new
--- event handler function. This way, state can be kept by passing data to the
--- new handler function without the room having to know about the state.
-type RoomEventHandler s = s -> RoomEvent -> RoomM s
+-- | The `RoomBehavior` defines a room's actual behavior in response to
+-- messages. It consists of a function which takes a set of events and behaviors
+-- as arguments and compiles an event network which should implement the desired
+-- behavior.
+type RoomBehavior = AddHandler ClientMsg -> AddHandler [Client] -> IO EventNetwork
+-- TODO: Get rid of the IO monad here.
 
--- | Monad for executing actions within the context of a room.
-newtype RoomM a = RoomM { unRoomM :: ReaderT Room STM a }
-    deriving (Functor, Applicative, Monad)
 
 
 -- | Sends a message to the given client.
-sendMessage :: Client -> RoomMsg -> RoomM ()
-sendMessage client msg = RoomM $ lift $ writeTQueue (cChan client) msg
+sendMessage :: Client -> MsgData -> IO ()
+sendMessage client msg = atomically $ writeTQueue (cChan client) msg
+
+-- | Takes `(Client, MsgData)` tuples from the given input event and sends each
+-- message to the appropriate client.
+sendMessages :: (Frameworks t) => Event t (Client, MsgData) -> Moment t ()
+sendMessages msgs = reactimate (uncurry sendMessage <$> msgs)
 
 
--- | Message handler which just echoes all messages back.
-testRoomHandler :: Integer -> RoomEvent -> RoomM Integer
-testRoomHandler x (ClientMsg client msg) = trace ("Handle message: " ++ show msg ++ " " ++ show x) $ do
-    sendMessage client msg
-    return (x + 1)
+-- | This function is `sendMessages`, but it accepts lists of @(Client,
+-- MsgData)@ tuples and sends messages to all of them.
+sendMultiMessages :: (Frameworks t) => Event t [(Client, MsgData)] -> Moment t ()
+sendMultiMessages eMsgList = reactimate (mapM_ (uncurry sendMessage) <$> eMsgList)
+
+
+-- | Takes an event stream of client messages and attempts to read each
+-- message's data as JSON using some `FromJSON` instance. Successfully decoded
+-- objects are sent down stream tupled together with the client that sent them.
+eventsFromJSON :: forall t. forall a. FromJSON a =>
+                  Event t ClientMsg -> Event t (Client, a)
+eventsFromJSON evt = filterJust (process <$> evt)
+  where
+    process :: ClientMsg -> Maybe (Client, a)
+    process (ClientMsg client msg) =
+        let decoded = fromJSON $ Object msg
+        in case decoded of
+             Success val -> Just (client, val)
+             Error err -> Nothing
 
 
 -------- Room State Stuff --------
 
 type RoomId = T.Text
 
-type RoomMsg = Object
+-- | Type alias for partially decoded message data structures. For now, this is
+-- simply a JSON object.
+type MsgData = Object
+
+type RoomMsg = MsgData
+
 
 -- | Container object for a room's state. This holds the "internal state" of the
 -- room; stuff internal to Backhand. It also holds the room's message handler
 -- and the state for that handler.
-data Room = forall s. Room
-    { rId           :: RoomId
-    , rClients      :: TVar [Client]
-    , rNextClientId :: TVar ClientId
-    , rEvtHandler   :: RoomEventHandler s
-    , rHandlerState :: TVar s
+data Room = Room
+    { rId            :: RoomId
+    , rClients       :: TVar [Client]
+    , rNextClientId  :: TVar ClientId
+    , rHandleMsg     :: ClientMsg -> IO () -- ^ IO action to fire the client
+                                           -- message event.
+    , rHandleClients :: [Client] -> IO () -- ^ IO action to let the behavior
+                                          -- know the client list changed.
     }
 
 -- | Handles the given event with the given room, updating the handler's state.
-handleEvent :: RoomEvent -> RoomM ()
-handleEvent evt = do
-    Room{ rEvtHandler = handler, rHandlerState = stateTV } <- RoomM ask
-    oldState <- RoomM $ lift $ readTVar stateTV
-    newState <- handler oldState evt
-    RoomM $ lift $ writeTVar stateTV newState
+-- handleEvent :: RoomEvent -> RoomM ()
+-- handleEvent evt = do
+--     Room{ rEvtHandler = handler, rHandlerState = stateTV } <- RoomM ask
+--     oldState <- RoomM $ lift $ readTVar stateTV
+--     newState <- handler oldState evt
+--     RoomM $ lift $ writeTVar stateTV newState
 
 
 type ClientId = Integer
@@ -93,6 +131,8 @@ data Client = Client
 instance Eq Client where
     a == b = cId a == cId b
 
+instance Show Client where
+    show c = "Client " ++ show (cId c)
 
               
 -- | Represents a "handle" to a particular room. This is given to clients when
@@ -108,11 +148,14 @@ data RoomHandle = RoomHandle
 
 
 -- | Sends a message from a client to the room connected on the given handle.
-msgRoom :: (MonadIO m) => RoomHandle -> RoomMsg -> m ()
-msgRoom hand msg = liftIO $
-    atomically $ runReaderT (unRoomM $ handleEvent $ ClientMsg client msg) (rhRoom hand)
+msgRoom :: (MonadIO m) => RoomHandle -> MsgData -> m ()
+msgRoom hand msg =
+    -- To handle a message, all we need to do is call the room's `rHandleMsg`
+    -- function and the FRP stuff should take over from there.
+    liftIO $ rHandleMsg (rhRoom hand) (ClientMsg client msg)
   where
     client = Client (rhClientId hand) (rhRecvChan hand)
+    -- atomically $ runReaderT (unRoomM $ handleEvent $ ClientMsg client msg) (rhRoom hand)
 
 -- | STM action which receives a message from the room connected to the given handle.
 recvRoomMsgSTM :: RoomHandle -> STM RoomMsg
@@ -120,6 +163,13 @@ recvRoomMsgSTM hand = do
     readTQueue $ rhRecvChan hand
 
 -------- Internal Stuff (used by Core) --------
+
+-- | Sends the room's behavior a copy of the room's current client list. This
+-- should be called after any call to `joinRoomSTM` or `partRoomSTM`.
+updateClientList :: Room -> IO ()
+updateClientList room = do
+    cs <- readTVarIO (rClients room)
+    rHandleClients room cs
   
 -- | True if the given room has no clients connected.
 isEmptyRoom :: Room -> STM Bool
@@ -127,8 +177,11 @@ isEmptyRoom = fmap null . readTVar . rClients
   
 -- | An STM action which joins the given room and returns a @RoomHandle@
 -- representing the connection.  The @RoomHandle@ *must* be cleaned up when it
--- is no longer needed. To ensure proper resource handling, this function should
--- not be called directly. Instead, use `Backhand.Core.joinRoom`.
+-- is no longer needed. Furthermore, after this function is called, it is
+-- necessary to call the `updateClientList` function to ensure the room's
+-- behavior knows about the new client. Therefore, to ensure proper resource
+-- handling, this function should not be called directly. Instead, use
+-- `Backhand.Core.joinRoom`.
 joinRoomSTM :: Room -> STM RoomHandle
 joinRoomSTM room = do
     recvChan <- newTQueue

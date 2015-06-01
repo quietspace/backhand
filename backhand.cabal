@@ -49,8 +49,10 @@ executable backhand
     -fno-warn-unused-do-bind -fno-warn-orphans
   build-depends: base >=4.6 && <4.9
                , backhand
+               , reactive-banana
                , async
                , containers
+               , unordered-containers
                , stm
                , mtl
                , transformers
@@ -93,3 +95,4 @@ library
                -- Network
                , websockets
                -- Other
+               , reactive-banana
