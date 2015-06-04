@@ -1,0 +1,4 @@
+#!/bin/sh
+
+s=$(type -p nix-shell)
+exec $s release.nix -A build.ghc7-10-1
