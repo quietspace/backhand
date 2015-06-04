@@ -18,6 +18,7 @@ import qualified Data.Text as T
 import Network.WebSockets
 
 import Backhand.Core
+import Backhand.Room.Handle
 
 
 -- | Internal state object for WebSocket threads.
@@ -100,7 +101,7 @@ websockLoop = do
         Right clientMsg -> handleMessage clientMsg
 
     recvTaggedMsg :: (RoomId, RoomHandle) -> STM ServerWebSockMsg
-    recvTaggedMsg (roomId, hand) = MsgFromRoom roomId <$> recvRoomMsgSTM hand
+    recvTaggedMsg (roomId, hand) = MsgFromRoom roomId <$> recvRoomMsg hand
     waitRoomMsgs rooms = foldr (<|>) retry $ map recvTaggedMsg $ M.toList rooms
 
 handleMessage :: ClientWebSockMsg -> WebSockM ()
@@ -113,14 +114,12 @@ handleMessage (JoinRoom roomId) = do
          hand <- joinRoom core roomId
          updateRoomHands $ M.insert roomId hand
          sendMessage $ JoinedRoom roomId
-         liftIO $ putStrLn ("Joined room " ++ show roomId)
 handleMessage (PartRoom roomId) = do
     core <- gets wssCore
     roomHand <- gets ((M.! roomId) . wssRoomHands)
     updateRoomHands $ M.delete roomId
     partRoom core roomHand
     sendMessage $ PartedRoom roomId
-    liftIO $ putStrLn ("Parted from room " ++ show roomId)
 handleMessage (MsgRoom roomId msg) = do
     roomHand <- gets ((M.! roomId) . wssRoomHands)
     msgRoom roomHand msg

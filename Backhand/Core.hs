@@ -6,13 +6,6 @@ module Backhand.Core
     , initCore
     , joinRoom
     , partRoom
-
-    -- * Communication With Rooms
-    , RoomHandle
-    , RoomId
-    , RoomMsg
-    , msgRoom
-    , recvRoomMsgSTM
     ) where
 
 import Control.Applicative
@@ -24,10 +17,10 @@ import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import qualified Data.Text as T
 
-import Debug.Trace
-
-import Backhand.Room
+import Backhand.Room.Handle
+import Backhand.Room.Internal
 import Backhand.Behavior.Chat
+
 
 -- | The object which holds a TVar containing the list of rooms present on this
 -- server. Each entry in the list is a room object which contains TVars storing
@@ -53,16 +46,16 @@ initCore = do
 -- | STM action which finds the room with the given ID if it exists. If the room
 -- does not exist, the action will retry.
 findRoomSTM :: BackhandCore -> RoomId -> STM Room
-findRoomSTM core roomId = trace "Finding room." $ do
+findRoomSTM core roomId = do
     rooms <- readTVar (coreRooms core)
-    when (roomId `M.notMember` rooms) (trace "No room found. Retrying." retry)
+    when (roomId `M.notMember` rooms) retry
     return (rooms M.! roomId)
 
 -- | STM action which creates a new room with the given ID and adds it to the
 -- given core's room list. Returns a @TVar@ with the newly created room in it.
 -- If a room with the given ID already exists, this action will retry.
 createRoomSTM :: BackhandCore -> RoomId -> STM Room
-createRoomSTM core roomId = trace "Creating room." $ do
+createRoomSTM core roomId = do
     rooms <- readTVar $ coreRooms core
     when (roomId `M.member` rooms) $ fail "Room already exists."
     room <- coreMkRoom core roomId
@@ -71,7 +64,7 @@ createRoomSTM core roomId = trace "Creating room." $ do
 
 -- | STM action which removes the given room from the core's room list.
 destroyRoomSTM :: BackhandCore -> Room -> STM ()
-destroyRoomSTM core room = trace "Destroying room." $ do
+destroyRoomSTM core room = do
     isEmpty <- isEmptyRoom room
     unless isEmpty $ fail "Not Implemented: Can only remove empty rooms."
     modifyTVar (coreRooms core) (M.filter (\r -> rId r /= rId room))
