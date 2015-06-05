@@ -4,7 +4,8 @@ import Control.Concurrent.STM
 import Data.Aeson
 import qualified Data.Text as T
 
-type RoomId = T.Text
+newtype RoomId = RoomId { roomIdStr :: T.Text }
+    deriving (Eq, Ord, Show)
 
 -- | Type alias for partially decoded message data structures. For now, this is
 -- simply a JSON object.
@@ -15,7 +16,8 @@ type RoomMsg = MsgData
 
 -------- Clients --------
 
-type ClientId = Integer
+newtype ClientId = ClientId Integer
+    deriving (Eq, Ord, Show)
 
 -- TODO: Move this stuff to a separate module for dealing with clients.
 data Client = Client
@@ -36,3 +38,13 @@ instance Eq Client where
 
 instance Show Client where
     show c = "Client " ++ show (cId c)
+
+
+-------- Some JSON encoding/decoding stuff --------
+
+instance ToJSON RoomId where
+    toJSON (RoomId str) = String str
+
+instance FromJSON RoomId where
+    parseJSON (String str) = return $ RoomId str
+    parseJSON _ = fail "expected a string"

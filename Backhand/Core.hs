@@ -30,7 +30,7 @@ import Backhand.Behavior.Chat
 -- This is essentially Backhand's core state object. The rooms list is accessed
 -- by each connection thread individually.
 data BackhandCore = BackhandCore
-    { coreRooms :: TVar (Map T.Text Room) -- ^ Map of room IDs to rooms.
+    { coreRooms :: TVar (Map RoomId Room) -- ^ Map of room IDs to rooms.
     , coreMkRoom :: RoomId -> STM Room
     }
 

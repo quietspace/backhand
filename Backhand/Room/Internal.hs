@@ -18,7 +18,7 @@ import Backhand.Room (RoomBehavior)
 mkRoom :: RoomId -> RoomBehavior -> STM Room
 mkRoom roomId behavior = do
   clients <- newTVar []
-  nextCId <- newTVar 0
+  nextCId <- newTVar $ ClientId 0
   lock <- newTRLock
   -- Unsafe IO is necessary here to keep this function as an STM action. This
   -- shouldn't cause problems, as constructing an event network shouldn't have

@@ -71,7 +71,7 @@ joinRoom room = withRoomLocked room $ do
                    , cChan = recvChan
                    }
       modifyTVar (rClients room) (client:)
-      modifyTVar (rNextClientId room) (+1)
+      modifyTVar (rNextClientId room) (\(ClientId n) -> ClientId (n + 1))
       return RoomHandle
                { rhRecvChan = recvChan
                , rhClientId = cId client

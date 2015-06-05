@@ -108,7 +108,7 @@ handleMessage :: ClientWebSockMsg -> WebSockM ()
 handleMessage (JoinRoom roomId) = do
     rooms <- gets wssRoomHands
     if roomId `M.member` rooms
-       then sendError ("Failed to join room. Already in room " <> roomId)
+       then sendError ("Failed to join room. Already in room " <> roomIdStr roomId)
        else do
          core <- gets wssCore
          hand <- joinCoreRoom core roomId
