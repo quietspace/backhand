@@ -50,6 +50,14 @@ executable backhand
     -fno-warn-unused-do-bind -fno-warn-orphans
   -- exposed-modules: Backhand.Core
   --                , Backhand.Connection
+  other-modules: Backhand.Behavior.Chat
+               , Backhand.Connection
+               , Backhand.Core
+               , Backhand.Room
+               , Backhand.Room.Handle
+               , Backhand.Room.Internal
+               , Backhand.Room.Types
+               , Control.Concurrent.STM.TRLock
 
   -- Other library packages from which modules are imported.
   build-depends: base >=4.6   && <4.9
@@ -61,6 +69,7 @@ executable backhand
                , mtl
                , transformers
                , lifted-base
+               , monad-control
                , resourcet
                -- Data structures
                , containers

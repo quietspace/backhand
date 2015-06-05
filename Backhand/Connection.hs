@@ -111,14 +111,14 @@ handleMessage (JoinRoom roomId) = do
        then sendError ("Failed to join room. Already in room " <> roomId)
        else do
          core <- gets wssCore
-         hand <- joinRoom core roomId
+         hand <- joinCoreRoom core roomId
          updateRoomHands $ M.insert roomId hand
          sendMessage $ JoinedRoom roomId
 handleMessage (PartRoom roomId) = do
     core <- gets wssCore
     roomHand <- gets ((M.! roomId) . wssRoomHands)
     updateRoomHands $ M.delete roomId
-    partRoom core roomHand
+    partCoreRoom core roomHand
     sendMessage $ PartedRoom roomId
 handleMessage (MsgRoom roomId msg) = do
     roomHand <- gets ((M.! roomId) . wssRoomHands)

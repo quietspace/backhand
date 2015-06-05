@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleContexts #-}
 -- | This module contains functions and data structures related to obtaining and
 -- using connections to a room.
 module Backhand.Room.Handle
@@ -8,8 +9,8 @@ module Backhand.Room.Handle
     , recvRoomMsg
     -- * Internal Stuff
     , updateClientList
-    , joinRoomSTM
-    , partRoomSTM
+    , joinRoom
+    , partRoom
     ) where
 
 import Control.Applicative -- Implicit in GHC 7.10
@@ -41,7 +42,6 @@ msgRoom hand msg =
     liftIO $ rHandleMsg (rhRoom hand) (ClientMsg client msg)
   where
     client = Client (rhClientId hand) (rhRecvChan hand)
-    -- atomically $ runReaderT (unRoomM $ handleEvent $ ClientMsg client msg) (rhRoom hand)
 
 
 -- | STM action which receives a message from the room connected to the given handle.
@@ -50,39 +50,44 @@ recvRoomMsg hand = do
     readTQueue $ rhRecvChan hand
 
 
--- | An STM action which joins the given room and returns a @RoomHandle@
--- representing the connection.  The @RoomHandle@ *must* be cleaned up when it
--- is no longer needed. Furthermore, after this function is called, it is
--- necessary to call the `updateClientList` function to ensure the room's
--- behavior knows about the new client. Therefore, to ensure proper resource
--- handling, this function should not be called directly. Instead, use
--- `Backhand.Core.joinRoom`.
-joinRoomSTM :: Room -> STM RoomHandle
-joinRoomSTM room = do
-    recvChan <- newTQueue
-    clientId <- readTVar $ rNextClientId room
-    let client = Client
-                 { cId = clientId
-                 , cChan = recvChan
-                 }
-    modifyTVar (rClients room) (client:)
-    modifyTVar (rNextClientId room) (+1)
-    return RoomHandle
-      { rhRecvChan = recvChan
-      , rhClientId = cId client
-      , rhRoom = room
-      , rhReleaseKey = undefined -- This should be set later by the joinRoom
-                                 -- function.
-      }
+-- | Joins the given room and returns a @RoomHandle@ representing the
+-- connection. The @RoomHandle@ *must* be explicitly destroyed via the
+-- `partRoom` function when it is no longer needed. Otherwise, the room will not
+-- be notified that the client has disconnected. It is not enough to simply let
+-- the garbage collector take care of the handle. This function is primarily for
+-- internal use. `Backhand.Core.joinCoreRoom` should be used instead to ensure
+-- cleanup is handled properly.
+joinRoom :: (MonadIO m, MonadBaseControl IO m) => Room -> m RoomHandle
+joinRoom room = withRoomLocked room $ do
+    hand <- liftIO $ atomically mkHandle
+    liftIO $ updateClientList room
+    return hand
+  where
+    mkHandle = do
+      recvChan <- newTQueue
+      clientId <- readTVar $ rNextClientId room
+      let client = Client
+                   { cId = clientId
+                   , cChan = recvChan
+                   }
+      modifyTVar (rClients room) (client:)
+      modifyTVar (rNextClientId room) (+1)
+      return RoomHandle
+               { rhRecvChan = recvChan
+               , rhClientId = cId client
+               , rhRoom = room
+               , rhReleaseKey = undefined -- This should be set later by the
+                                          -- joinCoreRoom function.
+               }
 
--- | An STM action which closes the given room handle, disconnecting the client
--- from the room. Like @joinRoomSTM@, this function is primarily for internal
--- use. `Backhand.Core.partRoom` should be used instead to ensure cleanup is
--- handled properly.
-partRoomSTM :: RoomHandle -> STM ()
-partRoomSTM (RoomHandle { rhRoom = room, rhClientId = clientId }) = do
-    modifyTVar (rClients room) removeClient
+-- | Closes the given room handle and disconnects the client from the room. This
+-- function is primarily for internal use. `Backhand.Core.partCoreRoom` should
+-- be used instead to ensure cleanup is handled properly.
+partRoom :: (MonadIO m, MonadBaseControl IO m) => RoomHandle -> m ()
+partRoom hand@(RoomHandle { rhRoom = room }) = withRoomLocked room $ do
+    -- TODO: Somehow invalidate the room handle so it cannot be used after this.
+    liftIO $ atomically $ modifyTVar (rClients room) removeClient
+    liftIO $ updateClientList room
   where
     -- Keep only clients with client IDs different from ours.
-    removeClient = filter (\c -> cId c /= clientId)
-
+    removeClient = filter (\c -> cId c /= rhClientId hand)

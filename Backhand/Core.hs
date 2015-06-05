@@ -1,11 +1,12 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 -- | This module implements Backhand's "core" object---the data structure which
 -- contains the list of rooms.
 module Backhand.Core
     ( BackhandCore
     , initCore
-    , joinRoom
-    , partRoom
+    , joinCoreRoom
+    , partCoreRoom
     ) where
 
 import Control.Applicative
@@ -73,43 +74,42 @@ destroyRoomSTM core room = do
 -- error if anyone is still in a room, since we have no reason to remove
 -- non-empty rooms yet.
 
--- | Joins the current thread to a room. This involves associating the current
--- thread with a @TChan@ and a client ID within the target room's state object.
--- The client *must* notify the room when it is disconnecting, otherwise Bad
--- Things (TM) will happen. To prevent this situation, this function must run
--- inside of a ResourceT monad.
---
--- The function returns a @RoomHandle@ which can be used to interface with the
--- room and a @ReleaseKey@ which can be used with the resource monad to
--- disconnect from the room.
-joinRoom :: (MonadResource m) => BackhandCore -> RoomId -> m RoomHandle
-joinRoom core roomId =
-    setReleaseKey <$> allocate doJoin doExit
+-- | Join a room with the given ID. If one does not exist, it will be created.
+-- This involves constructing a "handle" object to represent the connection to
+-- the room.  The client *must* notify the room when it is disconnecting,
+-- otherwise Bad Things (TM) will happen. To prevent this situation, this
+-- function must run inside of a ResourceT monad.
+joinCoreRoom :: (MonadIO m, MonadResource m, MonadBaseControl IO m) =>
+                BackhandCore -> RoomId -> m RoomHandle
+joinCoreRoom core roomId = setReleaseKey <$> allocate doJoin doExit
   where
     -- Takes a tuple of release key and room handle and returns the room handle
     -- with the key stored inside it.
     setReleaseKey (rk, rh) = rh { rhReleaseKey = rk }
+    doExit = partCoreRoom core
     doJoin = do
-      (room, hand) <- atomically (joinExisting <|> createAndJoin)
-      updateClientList room
+      -- We need to lock the room we're joining because joining a room requires
+      -- running an IO action and we need to guarantee no other thread will do
+      -- something in the time between us finding the room and joining it.
+      room <- atomically $ do
+                r <- findRoomSTM core roomId <|> createRoomSTM core roomId
+                lockRoom r
+                return r
+      hand <- joinRoom room
+      atomically $ unlockRoom room
       return hand
-    joinExisting = findRoomSTM core roomId >>= (\r -> (,) r <$> joinRoomSTM r)
-    createAndJoin = createRoomSTM core roomId >>= (\r -> (,) r <$> joinRoomSTM r)
-    doExit = partRoom core
 
 -- | Disconnects the given room handle. If the room is empty after
 -- disconnecting, it will be removed from existence.
-partRoom :: (MonadIO m) => BackhandCore -> RoomHandle -> m ()
-partRoom core roomHand = do
-    liftIO $ doPart
-    liftIO $ updateClientList (rhRoom roomHand)
+partCoreRoom :: (MonadIO m, MonadBaseControl IO m) => BackhandCore -> RoomHandle -> m ()
+partCoreRoom core hand = do
+    partRoom hand
+    removeIfEmpty
     -- Ensure the room handle is no longer protected by the resource monad. This
     -- prevents accidental duplicate disconnects.
-    _ <- unprotect (rhReleaseKey roomHand)
+    _ <- unprotect (rhReleaseKey hand)
     return ()
   where
-    doPart = atomically $ do
-        -- TODO: Somehow invalidate the room handle so it cannot be used after this.
-        partRoomSTM roomHand
-        isEmpty <- isEmptyRoom $ rhRoom roomHand
-        when isEmpty $ destroyRoomSTM core (rhRoom roomHand)
+    removeIfEmpty = liftIO $ atomically $ do
+      isEmpty <- isEmptyRoom $ rhRoom hand
+      when isEmpty $ destroyRoomSTM core (rhRoom hand)

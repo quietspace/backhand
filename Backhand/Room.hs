@@ -14,6 +14,7 @@ module Backhand.Room
 
 import Control.Applicative -- Implicit in GHC 7.10
 import Control.Concurrent.STM
+import Control.Concurrent.STM.TRLock
 import Data.Aeson
 import Reactive.Banana
 import Reactive.Banana.Frameworks
