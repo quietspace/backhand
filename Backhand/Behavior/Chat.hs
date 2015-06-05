@@ -5,6 +5,7 @@ module Backhand.Behavior.Chat where
 import Control.Monad
 import Data.Aeson
 import qualified Data.Text as T
+import Data.List hiding (union)
 import Reactive.Banana
 import Reactive.Banana.Frameworks
 
@@ -12,8 +13,16 @@ import Backhand.Room
 
 
 -- | Data structure representing a chat message.
-data ChatMsg = ChatMsg T.Text T.Text deriving Show
+data ChatMsg
+    = ChatMsg T.Text T.Text
+    deriving Show
 
+-- | Data structure representing an event such as a user joining or leaving.
+data ChatEvent
+    = UserJoined T.Text
+    | UserParted T.Text
+
+data ChatLogEntry = ChatLogEntryMsg ChatMsg | ChatLogEntryEvent ChatEvent
 
 -- | A response to a chat log request.
 data ChatLogMsg = ChatLogMsg [ChatMsg]
@@ -24,20 +33,32 @@ data ChatLogRequest = ChatLogRequest
 
 -- | Room behavior which implements a simple chat room.
 chatRoomBehavior :: RoomBehavior
-chatRoomBehavior addClientMsg addClientList =
+chatRoomBehavior clientMsgEvt clientEvt =
   let eventNet :: forall t. (Frameworks t) => Moment t ()
       eventNet = do
-        eClientMsg <- fromAddHandler addClientMsg
-        bClientList <- fromChanges [] addClientList
+        eClientMsg <- fromAddHandler clientMsgEvt
+        eClientEvt <- fromAddHandler clientEvt
+
+        let eClientJoin = evtClientJoin eClientEvt
+            eClientPart = evtClientPart eClientEvt
+            eChatEvt = (UserJoined <$> T.pack <$> show <$> eClientJoin) `union`
+                       (UserParted <$> T.pack <$> show <$> eClientPart)
+
+        let bClientList :: Behavior t [Client]
+            bClientList = accumB [] (((:)    <$> eClientJoin) `union`
+                                     (delete <$> eClientPart))
 
         let eChatMsg :: Event t ChatMsg
             eChatMsg = evtChatMsg eClientMsg
+
+        let eChatLogEvt = (ChatLogEntryMsg   <$> eChatMsg) `union`
+                          (ChatLogEntryEvent <$> eChatEvt)
 
         -- TODO: Clear old log entries when they get too long.
         let bChatLogs :: Behavior t [ChatMsg]
             bChatLogs = accumB [] ((:) <$> eChatMsg)
 
-        sendChatMsgs bClientList eChatMsg
+        sendChatEntries bClientList eChatLogEvt
         sendChatLogs bChatLogs eClientMsg
   in compile eventNet
 
@@ -51,14 +72,14 @@ evtChatMsg eClientMsg =
         ChatMsg (T.pack $ show $ cId client) msg
 
 
--- | Takes a chat message event stream and notifies all the clients in the given
+-- | Takes a log entry event stream and notifies all the clients in the given
 -- behavior when a message is posted.
-sendChatMsgs :: forall t. Frameworks t =>
-                Behavior t [Client] -> Event t ChatMsg -> Moment t ()
-sendChatMsgs bClientList eChatMsg = sendMultiMessages eSendMsg
+sendChatEntries :: forall t. Frameworks t =>
+                   Behavior t [Client] -> Event t ChatLogEntry -> Moment t ()
+sendChatEntries bClientList eChatEntry = sendMultiMessages eSendMsg
   where
     eChatMsgData :: Event t MsgData
-    eChatMsgData = (\(Object o) -> o) <$> toJSON <$> eChatMsg
+    eChatMsgData = (\(Object o) -> o) <$> toJSON <$> eChatEntry
     eSendMsg :: Event t [(Client, MsgData)]
     eSendMsg = apply bBroadcast (repeat <$> eChatMsgData)
     bBroadcast :: Behavior t ([MsgData] -> [(Client, MsgData)])
@@ -95,6 +116,20 @@ instance ToJSON ChatMsg where
         [ "type"   .= String "chat-msg"
         , "sender" .= sender
         , "msg"    .= message ]
+
+
+instance ToJSON ChatEvent where
+    toJSON (UserJoined user) = object
+        [ "type" .= String "user-join"
+        , "user" .= user ]
+    toJSON (UserParted user) = object
+        [ "type" .= String "user-part"
+        , "user" .= user ]
+
+
+instance ToJSON ChatLogEntry where
+    toJSON (ChatLogEntryMsg msg) = toJSON msg
+    toJSON (ChatLogEntryEvent evt) = toJSON evt
 
 
 instance ToJSON ChatLogMsg where

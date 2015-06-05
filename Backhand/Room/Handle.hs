@@ -4,11 +4,11 @@
 module Backhand.Room.Handle
     ( Room
     , module Backhand.Room.Types
-    , RoomHandle (rhRoom, rhClientId, rhReleaseKey)
+    , RoomHandle (rhRoom, rhReleaseKey)
+    , rhClientId
     , msgRoom
     , recvRoomMsg
     -- * Internal Stuff
-    , updateClientList
     , joinRoom
     , partRoom
     ) where
@@ -27,21 +27,25 @@ import Backhand.Room.Internal
 -- within that room. It can be used to send and receive messages as that client.
 -- This object *must* be cleaned up when the client disconnects.
 data RoomHandle = RoomHandle
-    { rhRecvChan   :: TQueue RoomMsg -- ^ Queue for received messages from the room.
+    { rhClient     :: Client         -- ^ The client this handle is connected to.
     , rhRoom       :: Room           -- ^ The room this handle is connected to.
-    , rhClientId   :: ClientId       -- ^ This client's ID within the room.
     , rhReleaseKey :: ReleaseKey     -- ^ ResourceT release key for this room.
     }
 
+-- | This client's ID within the room.
+rhClientId :: RoomHandle -> ClientId
+rhClientId = cId . rhClient
+
+-- | Queue for received messages from the room.
+rhRecvChan :: RoomHandle -> TQueue RoomMsg
+rhRecvChan = cChan . rhClient
 
 -- | Sends a message from a client to the room connected on the given handle.
 msgRoom :: (MonadIO m) => RoomHandle -> MsgData -> m ()
 msgRoom hand msg =
     -- To handle a message, all we need to do is call the room's `rHandleMsg`
     -- function and the FRP stuff should take over from there.
-    liftIO $ rHandleMsg (rhRoom hand) (ClientMsg client msg)
-  where
-    client = Client (rhClientId hand) (rhRecvChan hand)
+    liftIO $ rHandleMsg (rhRoom hand) (ClientMsg (rhClient hand) msg)
 
 
 -- | STM action which receives a message from the room connected to the given handle.
@@ -60,7 +64,7 @@ recvRoomMsg hand = do
 joinRoom :: (MonadIO m, MonadBaseControl IO m) => Room -> m RoomHandle
 joinRoom room = withRoomLocked room $ do
     hand <- liftIO $ atomically mkHandle
-    liftIO $ updateClientList room
+    liftIO $ rHandleClientEvt room $ ClientJoin $ rhClient hand
     return hand
   where
     mkHandle = do
@@ -73,8 +77,7 @@ joinRoom room = withRoomLocked room $ do
       modifyTVar (rClients room) (client:)
       modifyTVar (rNextClientId room) (\(ClientId n) -> ClientId (n + 1))
       return RoomHandle
-               { rhRecvChan = recvChan
-               , rhClientId = cId client
+               { rhClient = client
                , rhRoom = room
                , rhReleaseKey = undefined -- This should be set later by the
                                           -- joinCoreRoom function.
@@ -87,7 +90,7 @@ partRoom :: (MonadIO m, MonadBaseControl IO m) => RoomHandle -> m ()
 partRoom hand@(RoomHandle { rhRoom = room }) = withRoomLocked room $ do
     -- TODO: Somehow invalidate the room handle so it cannot be used after this.
     liftIO $ atomically $ modifyTVar (rClients room) removeClient
-    liftIO $ updateClientList room
+    liftIO $ rHandleClientEvt room $ ClientPart $ rhClient hand
   where
     -- Keep only clients with client IDs different from ours.
     removeClient = filter (\c -> cId c /= rhClientId hand)

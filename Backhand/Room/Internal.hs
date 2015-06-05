@@ -25,18 +25,18 @@ mkRoom roomId behavior = do
   -- any real side-effects. If this action happens to be performed multiple
   -- times, previously-compiled networks should simply be garbage collected and
   -- never used, as they don't really do much unless the handlers are called.
-  (handleMsg, handleClientsChange) <- unsafeIOToSTM $ do
-    (addMsgEvt, handleMsg) <- newAddHandler
-    (addClientListEvt, handleClientsChange) <- newAddHandler
-    network <- behavior addMsgEvt addClientListEvt
+  (handleMsg, handleClientEvt) <- unsafeIOToSTM $ do
+    (msgEvt, handleMsg) <- newAddHandler
+    (clientEvt, handleClientEvt) <- newAddHandler
+    network <- behavior msgEvt clientEvt
     actuate network
-    return (handleMsg, handleClientsChange)
+    return (handleMsg, handleClientEvt)
   return Room
          { rId = roomId
          , rClients = clients
          , rNextClientId = nextCId
          , rHandleMsg = handleMsg
-         , rHandleClients = handleClientsChange
+         , rHandleClientEvt = handleClientEvt
          , rLock = lock
          }
 
@@ -44,17 +44,17 @@ mkRoom roomId behavior = do
 -- room; stuff internal to Backhand. It also holds the room's message handler
 -- and the state for that handler.
 data Room = Room
-    { rId            :: RoomId
-    , rClients       :: TVar [Client]
-    , rNextClientId  :: TVar ClientId
-    , rHandleMsg     :: ClientMsg -> IO () -- ^ IO action to fire the client
-                                           -- message event.
-    , rHandleClients :: [Client] -> IO () -- ^ IO action to let the behavior
-                                          -- know the client list changed.
-    , rLock          :: TRLock -- ^ Mutex lock for this room. This is locked for
-                               -- non-STM actions such as joining, parting, and
-                               -- handling messages into order to prevent race
-                               -- conditions.
+    { rId              :: RoomId
+    , rClients         :: TVar [Client]
+    , rNextClientId    :: TVar ClientId
+    , rHandleMsg       :: ClientMsg -> IO () -- ^ IO action to fire the client
+                                             -- message event.
+    , rHandleClientEvt :: ClientEvent -> IO () -- ^ IO action to fire client
+                                               -- join/part events.
+    , rLock            :: TRLock -- ^ Mutex lock for this room. This is locked
+                                 -- for non-STM actions such as joining,
+                                 -- parting, and handling messages into order to
+                                 -- prevent race conditions.
     }
 
 -- | True if the given room has no clients connected.
@@ -80,10 +80,3 @@ unlockRoom = releaseTRLock . rLock
 -- `atomically (lockRoom r) >> action >> atomically (unlockRoom r)`.
 withRoomLocked :: (MonadIO m, MonadBaseControl IO m) => Room -> m a -> m a
 withRoomLocked room action = withTRLock (rLock room) action
-
-
--- | Sends the room's behavior a copy of the room's current client list.
-updateClientList :: Room -> IO ()
-updateClientList room = do
-    cs <- readTVarIO (rClients room)
-    rHandleClients room cs

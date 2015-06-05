@@ -10,6 +10,8 @@ module Backhand.Room
     , sendMessages
     , sendMultiMessages
     , eventsFromJSON
+    , evtClientJoin
+    , evtClientPart
     ) where
 
 import Control.Applicative -- Implicit in GHC 7.10
@@ -27,7 +29,22 @@ import Backhand.Room.Types
 -- messages. It consists of a function which takes a set of events and behaviors
 -- as arguments and compiles an event network which should implement the desired
 -- behavior.
-type RoomBehavior = AddHandler ClientMsg -> AddHandler [Client] -> IO EventNetwork
+type RoomBehavior = AddHandler ClientMsg -> AddHandler ClientEvent -> IO EventNetwork
+
+
+-- | Filters only `ClientJoin` events.
+evtClientJoin :: Event t ClientEvent -> Event t Client
+evtClientJoin = filterJust . fmap match
+  where
+    match (ClientJoin c) = Just c
+    match _ = Nothing
+
+-- | Filters only `ClientPart` events.
+evtClientPart :: Event t ClientEvent -> Event t Client
+evtClientPart = filterJust . fmap match
+  where
+    match (ClientPart c) = Just c
+    match _ = Nothing
 
 
 -- | Sends a message to the given client.
