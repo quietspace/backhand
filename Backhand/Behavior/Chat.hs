@@ -25,7 +25,7 @@ data ChatEvent
 data ChatLogEntry = ChatLogEntryMsg ChatMsg | ChatLogEntryEvent ChatEvent
 
 -- | A response to a chat log request.
-data ChatLogMsg = ChatLogMsg [ChatMsg]
+data ChatLogMsg = ChatLogMsg [ChatLogEntry]
 
 -- | A message requesting chat logs.
 data ChatLogRequest = ChatLogRequest
@@ -41,8 +41,8 @@ chatRoomBehavior clientMsgEvt clientEvt =
 
         let eClientJoin = evtClientJoin eClientEvt
             eClientPart = evtClientPart eClientEvt
-            eChatEvt = (UserJoined <$> T.pack <$> show <$> eClientJoin) `union`
-                       (UserParted <$> T.pack <$> show <$> eClientPart)
+            eChatEvt = (UserJoined <$> T.pack <$> show <$> cId <$> eClientJoin) `union`
+                       (UserParted <$> T.pack <$> show <$> cId <$> eClientPart)
 
         let bClientList :: Behavior t [Client]
             bClientList = accumB [] (((:)    <$> eClientJoin) `union`
@@ -55,8 +55,8 @@ chatRoomBehavior clientMsgEvt clientEvt =
                           (ChatLogEntryEvent <$> eChatEvt)
 
         -- TODO: Clear old log entries when they get too long.
-        let bChatLogs :: Behavior t [ChatMsg]
-            bChatLogs = accumB [] ((:) <$> eChatMsg)
+        let bChatLogs :: Behavior t [ChatLogEntry]
+            bChatLogs = accumB [] ((:) <$> eChatLogEvt)
 
         sendChatEntries bClientList eChatLogEvt
         sendChatLogs bChatLogs eClientMsg
@@ -89,7 +89,7 @@ sendChatEntries bClientList eChatEntry = sendMultiMessages eSendMsg
 -- | Takes a behavior containing a list of chat logs and the client command
 -- event stream and sends clients chat logs whenever they request them.
 sendChatLogs :: forall t. Frameworks t =>
-                Behavior t [ChatMsg] -> Event t ClientMsg -> Moment t ()
+                Behavior t [ChatLogEntry] -> Event t ClientMsg -> Moment t ()
 sendChatLogs bChatLogs eClientMsg = sendMessages eChatLogResponse
   where
     eChatLogRequest :: Event t Client
