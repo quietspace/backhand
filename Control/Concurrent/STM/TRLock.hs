@@ -13,6 +13,7 @@ module Control.Concurrent.STM.TRLock
     , withTRLockSTM
     ) where
 
+import Control.Applicative -- Implicit in GHC 7.10
 import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Monad.Trans
