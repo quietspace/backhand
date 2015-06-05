@@ -76,7 +76,7 @@ websockHandler core pending = do
   where
     doAccept :: IO ()
     doAccept = do
-      conn <- acceptRequest pending
+      conn <- acceptRequestWith pending $ AcceptRequest $ Just "backhand-json"
       evalStateT (runResourceT $ websockLoop) (initSockState core conn)
 
 -- | Main loop for handling websocket connections.
