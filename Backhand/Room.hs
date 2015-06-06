@@ -28,8 +28,6 @@ module Backhand.Room
 import Prelude hiding ((.))
 
 import Control.Applicative -- Implicit in GHC 7.10
-import Control.Monad.Trans
-import Control.Concurrent.STM
 import Control.Wire
 import Control.Wire.Unsafe.Event
 import Data.Aeson
@@ -153,4 +151,4 @@ msgsFromJSON = filterMatch process . clientMsg
         let decoded = fromJSON $ Object msg
         in case decoded of
              Success val -> Just (client, val)
-             Error err -> Nothing
+             Error _ -> Nothing

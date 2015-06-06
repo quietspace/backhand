@@ -16,7 +16,6 @@ import Control.Monad.Trans
 import Control.Monad.Trans.Resource
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
-import qualified Data.Text as T
 
 import Backhand.Room.Handle
 import Backhand.Room.Internal

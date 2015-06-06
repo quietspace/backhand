@@ -74,8 +74,8 @@ withRoomLocked room action = withTRLock (rLock room) action
 
 -- | Takes a client event and steps the room's behavior.
 handleEvent :: (MonadIO m, MonadBaseControl IO m) => Room -> ClientEvent -> m ()
-handleEvent room event = withRoomLocked room $ do
+handleEvent room evt = withRoomLocked room $ do
     -- It is safe to not use an STM transaction here since the room is locked.
     oldWire <- liftIO $ readTVarIO $ rBehavior room
-    (_, newWire) <- liftIO $ unRoomM $ stepWire oldWire () (Right $ Event event)
+    (_, newWire) <- liftIO $ unRoomM $ stepWire oldWire () (Right $ Event evt)
     liftIO $ atomically $ writeTVar (rBehavior room) newWire
