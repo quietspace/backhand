@@ -32,9 +32,10 @@ data ClientMsg = ClientMsg
     , clientMsgData   :: MsgData
     } deriving (Show)
 
-
 -- | Data structure which represents a client either joining or leaving a room.
-data ClientEvent = ClientJoin Client | ClientPart Client
+data ClientEvent = ClientMsgEvt ClientMsg
+                 | ClientJoinEvt Client
+                 | ClientPartEvt Client
 
 instance Eq Client where
     a == b = cId a == cId b

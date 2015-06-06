@@ -21,6 +21,7 @@ import qualified Data.Text as T
 import Backhand.Room.Handle
 import Backhand.Room.Internal
 import Backhand.Behavior.Chat
+--import Backhand.Behavior.Reversi
 
 
 -- | The object which holds a TVar containing the list of rooms present on this

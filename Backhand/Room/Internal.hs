@@ -2,16 +2,18 @@
 -- | Internal plumbing for rooms.
 module Backhand.Room.Internal where
 
+import Prelude hiding ((.))
+
 import Control.Applicative -- Implicit in GHC 7.10
-import Control.Monad
-import Control.Monad.Trans.Control
 import Control.Concurrent.STM
 import Control.Concurrent.STM.TRLock
-import Reactive.Banana.Frameworks
-
-import GHC.Conc.Sync
+import Control.Monad.Trans
+import Control.Monad.Trans.Control
+import Control.Wire
+import Control.Wire.Unsafe.Event
 
 import Backhand.Room.Types
+import Backhand.Room.Monad
 import Backhand.Room (RoomBehavior)
 
 -- | Creates a new room with the given event handler and initial state.
@@ -19,24 +21,15 @@ mkRoom :: RoomId -> RoomBehavior -> STM Room
 mkRoom roomId behavior = do
   clients <- newTVar []
   nextCId <- newTVar $ ClientId 0
+  behTVar <- newTVar behavior
   lock <- newTRLock
-  -- Unsafe IO is necessary here to keep this function as an STM action. This
-  -- shouldn't cause problems, as constructing an event network shouldn't have
-  -- any real side-effects. If this action happens to be performed multiple
-  -- times, previously-compiled networks should simply be garbage collected and
-  -- never used, as they don't really do much unless the handlers are called.
-  (handleMsg, handleClientEvt) <- unsafeIOToSTM $ do
-    (msgEvt, handleMsg) <- newAddHandler
-    (clientEvt, handleClientEvt) <- newAddHandler
-    network <- behavior msgEvt clientEvt
-    actuate network
-    return (handleMsg, handleClientEvt)
   return Room
          { rId = roomId
          , rClients = clients
          , rNextClientId = nextCId
-         , rHandleMsg = handleMsg
-         , rHandleClientEvt = handleClientEvt
+         , rBehavior = behTVar
+         -- , rHandleMsg = handleMsg
+         -- , rHandleClientEvt = handleClientEvt
          , rLock = lock
          }
 
@@ -47,10 +40,7 @@ data Room = Room
     { rId              :: RoomId
     , rClients         :: TVar [Client]
     , rNextClientId    :: TVar ClientId
-    , rHandleMsg       :: ClientMsg -> IO () -- ^ IO action to fire the client
-                                             -- message event.
-    , rHandleClientEvt :: ClientEvent -> IO () -- ^ IO action to fire client
-                                               -- join/part events.
+    , rBehavior        :: TVar RoomBehavior
     , rLock            :: TRLock -- ^ Mutex lock for this room. This is locked
                                  -- for non-STM actions such as joining,
                                  -- parting, and handling messages into order to
@@ -80,3 +70,12 @@ unlockRoom = releaseTRLock . rLock
 -- `atomically (lockRoom r) >> action >> atomically (unlockRoom r)`.
 withRoomLocked :: (MonadIO m, MonadBaseControl IO m) => Room -> m a -> m a
 withRoomLocked room action = withTRLock (rLock room) action
+
+
+-- | Takes a client event and steps the room's behavior.
+handleEvent :: (MonadIO m, MonadBaseControl IO m) => Room -> ClientEvent -> m ()
+handleEvent room event = withRoomLocked room $ do
+    -- It is safe to not use an STM transaction here since the room is locked.
+    oldWire <- liftIO $ readTVarIO $ rBehavior room
+    (_, newWire) <- liftIO $ unRoomM $ stepWire oldWire () (Right $ Event event)
+    liftIO $ atomically $ writeTVar (rBehavior room) newWire

@@ -1,13 +1,14 @@
+{-# LANGUAGE Arrows #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 module Backhand.Behavior.Chat where
 
+import Prelude hiding ((.))
+
 import Control.Monad
+import Control.Wire
 import Data.Aeson
 import qualified Data.Text as T
-import Data.List hiding (union)
-import Reactive.Banana
-import Reactive.Banana.Frameworks
 
 import Backhand.Room
 
@@ -19,21 +20,80 @@ data ChatMsg
 
 -- | Data structure representing an event such as a user joining or leaving.
 data ChatEvent
-    = UserJoined T.Text
-    | UserParted T.Text
-
-data ChatLogEntry = ChatLogEntryMsg ChatMsg | ChatLogEntryEvent ChatEvent
+    = ChatMsgEvt ChatMsg
+    | UserJoinEvt T.Text
+    | UserPartEvt T.Text
 
 -- | A response to a chat log request.
-data ChatLogMsg = ChatLogMsg [ChatLogEntry]
+data ChatLogMsg = ChatLogMsg [ChatEvent]
 
 -- | A message requesting chat logs.
 data ChatLogRequest = ChatLogRequest
 
 
+toClientName :: Client -> T.Text
+toClientName = T.pack . show . cId
+
+
 -- | Room behavior which implements a simple chat room.
 chatRoomBehavior :: RoomBehavior
-chatRoomBehavior clientMsgEvt clientEvt =
+chatRoomBehavior =
+    const () <$> (sendChatLogs &&& sendChatEvents)
+
+
+-- | Fires when a chat message is received.
+chatMsg :: (MonadRoom m) => RoomWire s e m (Event ChatMsg)
+chatMsg = fmap mkMsg <$> msgsFromJSON
+  where
+    mkMsg :: (Client, ChatMsg) -> ChatMsg
+    mkMsg (client, (ChatMsg _ msg)) = ChatMsg (toClientName client) msg
+
+-- | Event which emits the names of joining users.
+userJoin :: (MonadRoom m) => RoomWire s e m (Event T.Text)
+userJoin = fmap toClientName <$> clientJoin
+
+-- | Event which emits the names of leaving users.
+userPart :: (MonadRoom m) => RoomWire s e m (Event T.Text)
+userPart = fmap toClientName <$> clientPart
+
+-- | Fires on user joins/parts.
+chatEvents :: (MonadRoom m) => RoomWire s e m (Event ChatEvent)
+chatEvents =
+    -- This merge shouldn't lose any events, since only one of these events can
+    -- occur at a time.
+       (fmap ChatMsgEvt  <$> chatMsg)
+    &> (fmap UserJoinEvt <$> userJoin)
+    &> (fmap UserPartEvt <$> userPart)
+
+
+-- | Wire containing the chat logs.
+chatLogs :: (MonadRoom m, Monoid e) => RoomWire s e m [ChatEvent]
+chatLogs = hold . accumE (flip (:)) [] . chatEvents
+
+
+-- | Emits when a client requests chat logs.
+chatLogRequest :: forall s e m. (MonadRoom m) => RoomWire s e m (Event Client)
+chatLogRequest = fmap fst <$> (msgsFromJSON :: RoomWire s e m (Event (Client, ChatLogRequest)))
+
+
+-- | Sends chat logs to clients when they are requested.
+sendChatLogs :: forall s e m. (MonadRoom m, Monoid e) => RoomWire s e m ()
+sendChatLogs = encodeSendMessages . requestedLogs
+  where
+    -- | Fires an event with the contents of the chat log and a client to send
+    -- them to whenever they are requested.
+    requestedLogs :: RoomWire s e m (Event (Client, ChatLogMsg))
+    requestedLogs = applyE (tagLogs <$> chatLogs) chatLogRequest
+    tagLogs :: [ChatEvent] -> Client -> (Client, ChatLogMsg)
+    tagLogs logs client = (client, ChatLogMsg $ reverse logs)
+
+
+-- | Broadcasts chat events to all clients.
+sendChatEvents :: (MonadRoom m, Monoid e) => RoomWire s e m ()
+sendChatEvents = broadcastMsgs (fmap toJsonObj <$> chatEvents)
+
+
+{-
   let eventNet :: forall t. (Frameworks t) => Moment t ()
       eventNet = do
         eClientMsg <- fromAddHandler clientMsgEvt
@@ -99,16 +159,16 @@ sendChatLogs bChatLogs eClientMsg = sendMessages eChatLogResponse
         <$> apply ((,) <$> bChatLogs) eChatLogRequest
     toJSONObj = (\(Object o) -> o) . toJSON
 
-
+-}
   
 -------- JSON encoding/decoding stuff --------
 
 instance FromJSON ChatMsg where
     parseJSON (Object v) = do
         msgType <- v .: "type"
-        unless ((msgType :: T.Text) == "chat-msg")
-               (fail "not a chat message: wrong message type")
-        ChatMsg "unknown" <$> v .: "msg"
+        if ((msgType :: T.Text) == "chat-msg")
+           then ChatMsg "unknown" <$> v .: "msg"
+           else fail "not a chat message: wrong message type"
     parseJSON _ = fail "expected an object"
 
 instance ToJSON ChatMsg where
@@ -119,17 +179,13 @@ instance ToJSON ChatMsg where
 
 
 instance ToJSON ChatEvent where
-    toJSON (UserJoined user) = object
+    toJSON (ChatMsgEvt msg) = toJSON msg
+    toJSON (UserJoinEvt user) = object
         [ "type" .= String "user-join"
         , "user" .= user ]
-    toJSON (UserParted user) = object
+    toJSON (UserPartEvt user) = object
         [ "type" .= String "user-part"
         , "user" .= user ]
-
-
-instance ToJSON ChatLogEntry where
-    toJSON (ChatLogEntryMsg msg) = toJSON msg
-    toJSON (ChatLogEntryEvent evt) = toJSON evt
 
 
 instance ToJSON ChatLogMsg where

@@ -56,6 +56,7 @@ executable backhand
                , Backhand.Room
                , Backhand.Room.Handle
                , Backhand.Room.Internal
+               , Backhand.Room.Monad
                , Backhand.Room.Types
                , Control.Concurrent.STM.TRLock
 
@@ -83,4 +84,4 @@ executable backhand
                -- Network
                , websockets
                -- Other
-               , reactive-banana
+               , netwire

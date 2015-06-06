@@ -41,11 +41,9 @@ rhRecvChan :: RoomHandle -> TQueue RoomMsg
 rhRecvChan = cChan . rhClient
 
 -- | Sends a message from a client to the room connected on the given handle.
-msgRoom :: (MonadIO m) => RoomHandle -> MsgData -> m ()
-msgRoom hand msg =
-    -- To handle a message, all we need to do is call the room's `rHandleMsg`
-    -- function and the FRP stuff should take over from there.
-    liftIO $ rHandleMsg (rhRoom hand) (ClientMsg (rhClient hand) msg)
+msgRoom :: (MonadIO m, MonadBaseControl IO m) => RoomHandle -> MsgData -> m ()
+msgRoom hand msg = withRoomLocked (rhRoom hand) $
+    handleEvent (rhRoom hand) $ ClientMsgEvt (ClientMsg (rhClient hand) msg)
 
 
 -- | STM action which receives a message from the room connected to the given handle.
@@ -64,7 +62,7 @@ recvRoomMsg hand = do
 joinRoom :: (MonadIO m, MonadBaseControl IO m) => Room -> m RoomHandle
 joinRoom room = withRoomLocked room $ do
     hand <- liftIO $ atomically mkHandle
-    liftIO $ rHandleClientEvt room $ ClientJoin $ rhClient hand
+    handleEvent room $ ClientJoinEvt $ rhClient hand
     return hand
   where
     mkHandle = do
@@ -90,7 +88,7 @@ partRoom :: (MonadIO m, MonadBaseControl IO m) => RoomHandle -> m ()
 partRoom hand@(RoomHandle { rhRoom = room }) = withRoomLocked room $ do
     -- TODO: Somehow invalidate the room handle so it cannot be used after this.
     liftIO $ atomically $ modifyTVar (rClients room) removeClient
-    liftIO $ rHandleClientEvt room $ ClientPart $ rhClient hand
+    handleEvent room $ ClientPartEvt $ rhClient hand
   where
     -- Keep only clients with client IDs different from ours.
     removeClient = filter (\c -> cId c /= rhClientId hand)
