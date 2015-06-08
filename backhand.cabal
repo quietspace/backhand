@@ -58,6 +58,8 @@ executable backhand
                , Backhand.Room.Internal
                , Backhand.Room.Monad
                , Backhand.Room.Types
+               , Backhand.Util.Aeson
+               , Backhand.Util.Auto
                , Control.Concurrent.STM.TRLock
 
   -- Other library packages from which modules are imported.
@@ -84,4 +86,4 @@ executable backhand
                -- Network
                , websockets
                -- Other
-               , netwire
+               , auto

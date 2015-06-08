@@ -1,150 +1,141 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE TypeSynonymInstances #-}
 module Backhand.Room
     ( RoomBehavior
     , Client (cId)
     , RoomM (..)
     , MonadRoom (..)
-    , RoomWire
+    , RoomAuto
     -- * Messages
     , ClientMsg (..)
     , ClientEvent (..)
     , MsgData
     , sendMessages
-    , encodeSendMessages
+    , encodeMessages
     , sendMultiMessages
     , broadcastMsgs
     , msgsFromJSON
     , clientJoin
     , clientPart
     , clientMsg
-    -- * Misc
-    , filterMatch
-    , applyE
-    , toJsonObj
     ) where
 
 import Prelude hiding ((.))
 
 import Control.Applicative -- Implicit in GHC 7.10
-import Control.Wire
-import Control.Wire.Unsafe.Event
+import Control.Auto
+import Control.Auto.Blip
 import Data.Aeson
 import Data.List
 
 import Backhand.Room.Types
 import Backhand.Room.Monad
+import Backhand.Util.Aeson
+import Backhand.Util.Auto
+
 
 -------- Event Handler Stuff --------
 
 -- | The `RoomBehavior` defines a room's actual behavior in response to
--- messages. It consists of a wire which takes client events as input and runs in
--- the `RoomM` monad.
-type RoomBehavior = RoomWire () () RoomM ()
+-- messages. It consists of an auto which takes client events as input and
+-- outputs a list of messages to send.
+type RoomBehavior = Auto' ClientEvent [(Client, MsgData)]
 
--- | Shorthand for a wire which takes a client event as its input.
-type RoomWire s e m b = Wire s e m (Event ClientEvent) b
-
-
-filterMatch :: (a -> Maybe b) -> Wire s e m (Event a) (Event b)
-filterMatch match =
-    mkSF_ $ \mev ->
-        case fmap match mev of
-          Event (Just x) -> Event x
-          _ -> NoEvent
+-- | Shorthand for an auto which takes a client event as its input.
+type RoomAuto m b = Auto m ClientEvent b
 
 
--- | Like @apply@ in reactive banana. Merges the two given wires by applying the
--- function from the second wire's output to the contents of the event in the
--- first wire's output and producing a new wire which outputs the result in an
--- event stream.
-applyE :: forall s e m a c b. (Monad m) =>
-          Wire s e m a (c -> b)
-       -> Wire s e m a (Event c)
-       -> Wire s e m a (Event b)
-applyE funcWire evtWire = arr mergeOutput <<< unmerged
-  where
-    unmerged :: Wire s e m a (Event c, c -> b)
-    unmerged = evtWire &&& funcWire
-    mergeOutput :: (Event c, c -> b) -> Event b
-    mergeOutput (Event c, func) = Event $ func c
-    mergeOutput _ = NoEvent
+-- | Merges two behaviors into one. All input events are sent to both behaviors
+-- and the output messages from both behaviors are combined.
+mergeBehaviors :: RoomBehavior -> RoomBehavior -> RoomBehavior
+mergeBehaviors a b =
+    -- Fanout to both behaviors and combine the output lists.
+    (a &&& b) >>> arr (uncurry (++))
+
+-- | Monoid instance for `RoomBehavior` where `mappend` merges behaviors and
+-- `mempty` is a behavior which does nothing.
+instance Monoid RoomBehavior where
+    mappend = mergeBehaviors
+    mempty = arr (const [])
 
 
--- clientEvent :: (MonadRoom m) => RoomWire s e m (Event ClientEvent)
--- clientEvent = mkGen_ $ \_ -> Right <$> Event <$> getCurrentEvent
-
--- | Wire which outputs when a client joins the room.
-clientJoin :: (MonadRoom m) => RoomWire s e m (Event Client)
-clientJoin = filterMatch match
+-- | Blip stream which outputs when a client joins the room.
+clientJoin :: Monad m => RoomAuto m (Blip Client)
+clientJoin = emitJusts match
   where
     match (ClientJoinEvt c) = Just c
     match _ = Nothing
 
--- | Wire which outputs a client when a client leaves the room.
-clientPart :: (MonadRoom m) => RoomWire s e m (Event Client)
-clientPart = filterMatch match
+-- | Auto which outputs a client when a client leaves the room.
+clientPart :: Monad m => RoomAuto m (Blip Client)
+clientPart = emitJusts match
   where
     match (ClientPartEvt c) = Just c
     match _ = Nothing
 
--- | Wire which outputs a client when a client sends a message.
-clientMsg :: (MonadRoom m) => RoomWire s e m (Event ClientMsg)
-clientMsg = filterMatch match
+-- | Auto which outputs a client when a client sends a message.
+clientMsg :: Monad m => RoomAuto m (Blip ClientMsg)
+clientMsg = emitJusts match
   where
     match (ClientMsgEvt c) = Just c
     match _ = Nothing
 
 
--- | A wire that keeps track of all the clients in the room.
-clientList :: (MonadRoom m, Monoid e) => RoomWire s e m [Client]
-clientList = hold . accumE (\a f -> f a) [] . updates
+-- | An auto that keeps track of all the clients in the room.
+clientList :: Monad m => RoomAuto m [Client] -- TODO: Implement serialization for this auto
+clientList = scanB_ (\a f -> f a) [] <<< updates
   where
     updates = addClient &> delClient
-    addClient = arr (fmap (:)) . clientJoin
-    delClient = arr (fmap delete) . clientPart
+    addClient = modifyBlips (:)    <<< clientJoin
+    delClient = modifyBlips delete <<< clientPart
 
 
--- | Wire that takes `(Client, MsgData)` tuples and sends them to the
--- appropriate client.
-sendMessages :: (MonadRoom m) => Wire s e m (Event (Client, MsgData)) ()
-sendMessages = const () <$> onEventM (uncurry sendMessage)
+-- | Encodes the second element of a stream of @(Client, b)@ tuples so they can
+-- be sent to clients. @b@ must be an instance of `ToJSONObject`.
+encodeMessages :: (Monad m, ToJSONObject b) => Auto m (Client, b) (Client, MsgData)
+encodeMessages = second (arr toJSONObj)
 
--- | Like `sendMessages`, but automatically converts the second tuple element of
--- the event to a JSON object. Ignores non-objects.
-encodeSendMessages :: (MonadRoom m, ToJSON j) => Wire s e m (Event (Client, j)) ()
-encodeSendMessages = sendMessages . filterMatch match . arr (fmap (second toJSON))
-  where
-    match (c, Object o) = Just (c, o)
-    match _ = Nothing
+-- | Takes a blip stream of messages from upstream and outputs them to be sent
+-- to clients.
+sendMessages :: Monad m => Auto m (Blip (Client, MsgData)) [(Client, MsgData)]
+sendMessages =
+    -- When there's no input, output an empty list. When there is input, output
+    -- a list with the message to send.
+    fromBlipsWith [] (:[])
 
 -- | Like `sendMessages`, but can send multiple messages at once.
-sendMultiMessages :: (MonadRoom m) => Wire s e m (Event [(Client, MsgData)]) ()
-sendMultiMessages = const () <$> onEventM (mapM_ (uncurry sendMessage))
+sendMultiMessages :: (Monad m) => Auto m (Blip [(Client, MsgData)]) [(Client, MsgData)]
+sendMultiMessages =
+    -- When there's no input, output an empty list. When there is input, output
+    -- it.
+    fromBlips []
 
 
--- | Broadcasts the output of the given wire to all clients.
-broadcastMsgs :: (MonadRoom m, Monoid e) =>
-                 RoomWire s e m (Event MsgData)
-              -> RoomWire s e m ()
-broadcastMsgs input = sendMultiMessages . applyE (toAll <$> clientList) input
+-- | Creates a room behavior which broadcasts the output of the given auto to
+-- all clients.
+broadcastMsgs :: forall m. (Monad m) =>
+                 RoomAuto m (Blip MsgData)
+              -> RoomAuto m [(Client, MsgData)]
+broadcastMsgs input = sendMultiMessages <<< combined
   where
-    toAll clients msg = map (, msg) clients
-
-
--- | Like `toJSON`, but converts to an `Object`. Crashes if `toJSON` returns
--- something other than an object.
-toJsonObj :: ToJSON a => a -> Object
-toJsonObj a = case toJSON a of
-                Object o -> o
-                _ -> error "not an object"
+    combined = modifyBlips toAll <<< clientListBlips
+    -- Blip stream that outputs a tuple with a list of all the clients and the
+    -- upstream blip value whenever the `input` stream blips.
+    clientListBlips :: RoomAuto m (Blip (MsgData, [Client]))
+    clientListBlips = sample clientList input
+    -- Take a list of clients and a message and build a list of tuples to send
+    -- the message to the clients.
+    toAll :: (MsgData, [Client]) -> [(Client, MsgData)]
+    toAll (msg, clients) = map (, msg) clients
 
 
 -- | Decodes incoming messages from JSON.
-msgsFromJSON :: forall s e m b. (MonadRoom m, FromJSON b) =>
-                RoomWire s e m (Event (Client, b))
-msgsFromJSON = filterMatch process . clientMsg
+msgsFromJSON :: forall m b. (Monad m, FromJSON b) =>
+                RoomAuto m (Blip (Client, b))
+msgsFromJSON = mapMaybeB process <<< clientMsg
   where
     process :: ClientMsg -> Maybe (Client, b)
     process (ClientMsg client msg) =

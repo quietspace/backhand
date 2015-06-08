@@ -13,7 +13,7 @@ let
       base cabal-install
       async stm stm-chans mtl transformers lifted-base monad-control resourcet
       containers unordered-containers ixset time text bytestring aeson
-      websockets netwire
+      websockets auto
     ];
     description = "Back-end connection management system for Internet card games";
     license = stdenv.lib.licenses.mit;

@@ -5,12 +5,11 @@ module Backhand.Room.Internal where
 import Prelude hiding ((.))
 
 import Control.Applicative -- Implicit in GHC 7.10
+import Control.Auto
 import Control.Concurrent.STM
 import Control.Concurrent.STM.TRLock
 import Control.Monad.Trans
 import Control.Monad.Trans.Control
-import Control.Wire
-import Control.Wire.Unsafe.Event
 
 import Backhand.Room.Types
 import Backhand.Room.Monad
@@ -76,6 +75,7 @@ withRoomLocked room action = withTRLock (rLock room) action
 handleEvent :: (MonadIO m, MonadBaseControl IO m) => Room -> ClientEvent -> m ()
 handleEvent room evt = withRoomLocked room $ do
     -- It is safe to not use an STM transaction here since the room is locked.
-    oldWire <- liftIO $ readTVarIO $ rBehavior room
-    (_, newWire) <- liftIO $ unRoomM $ stepWire oldWire () (Right $ Event evt)
-    liftIO $ atomically $ writeTVar (rBehavior room) newWire
+    old <- liftIO $ readTVarIO $ rBehavior room
+    let (msgs, new) = runIdentity $ stepAuto old evt
+    liftIO $ atomically $ writeTVar (rBehavior room) new
+    liftIO $ unRoomM $ mapM_ (uncurry sendMessage) msgs
