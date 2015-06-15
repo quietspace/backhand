@@ -16,10 +16,12 @@ import Control.Monad.Trans
 import Control.Monad.Trans.Resource
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
+import Data.Monoid
 
 import Backhand.Room.Handle
 import Backhand.Room.Internal
 import Backhand.Behavior.Chat
+import Backhand.Behavior.Reversi
 
 
 -- | The object which holds a TVar containing the list of rooms present on this
@@ -39,7 +41,7 @@ initCore = do
     rooms <- newTVarIO M.empty
     return BackhandCore
         { coreRooms = rooms
-        , coreMkRoom = \roomId -> mkRoom roomId chatRoomBehavior
+        , coreMkRoom = \roomId -> mkRoom roomId (chatRoomBehavior <> reversiBehavior)
         }
 
 

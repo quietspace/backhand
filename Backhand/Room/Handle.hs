@@ -37,7 +37,7 @@ rhClientId :: RoomHandle -> ClientId
 rhClientId = cId . rhClient
 
 -- | Queue for received messages from the room.
-rhRecvChan :: RoomHandle -> TQueue RoomMsg
+rhRecvChan :: RoomHandle -> TQueue MsgData
 rhRecvChan = cChan . rhClient
 
 -- | Sends a message from a client to the room connected on the given handle.
@@ -47,7 +47,7 @@ msgRoom hand msg = withRoomLocked (rhRoom hand) $
 
 
 -- | STM action which receives a message from the room connected to the given handle.
-recvRoomMsg :: RoomHandle -> STM RoomMsg
+recvRoomMsg :: RoomHandle -> STM MsgData
 recvRoomMsg hand = do
     readTQueue $ rhRecvChan hand
 

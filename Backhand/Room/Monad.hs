@@ -1,7 +1,8 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module Backhand.Room.Monad where
 
-import Control.Applicative
+import Prelude
+
 import Control.Concurrent.STM
 import Control.Monad.Trans
 

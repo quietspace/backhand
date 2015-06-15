@@ -3,8 +3,6 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 module Backhand.Behavior.Chat where
 
-import Prelude hiding (id, (.))
-
 import Control.Applicative -- Implicit in GHC 7.10
 import Control.Auto
 import Control.Auto.Blip
@@ -12,8 +10,9 @@ import Control.Monad
 import Data.Aeson
 import qualified Data.Text as T
 
+import Prelude hiding (id, (.))
+
 import Backhand.Room
-import Backhand.Util.Aeson
 import Backhand.Util.Auto
 
 
@@ -46,22 +45,22 @@ chatRoomBehavior = sendChatLogs
 
 
 -- | Blips when a chat message is received.
-chatMsg :: (Monad m) => RoomAuto m (Blip ChatMsg)
-chatMsg = modifyBlips mkMsg <<< msgsFromJSON
+chatMsg :: RoomAuto (Blip ChatMsg)
+chatMsg = modifyBlips mkMsg <<< decodedMsgs
   where
     mkMsg :: (Client, ChatMsg) -> ChatMsg
     mkMsg (client, (ChatMsg _ msg)) = ChatMsg (toClientName client) msg
 
 -- | Blip stream with the names of joining users.
-userJoin :: (Monad m) => RoomAuto m (Blip T.Text)
+userJoin :: RoomAuto (Blip T.Text)
 userJoin = modifyBlips toClientName <<< clientJoin
 
 -- | Blip stream with the names of leaving users.
-userPart :: (Monad m) => RoomAuto m (Blip T.Text)
+userPart :: RoomAuto (Blip T.Text)
 userPart = modifyBlips toClientName <<< clientPart
 
 -- | Blips on user joins/parts/messages.
-chatEvents :: (Monad m) => RoomAuto m (Blip ChatEvent)
+chatEvents :: RoomAuto (Blip ChatEvent)
 chatEvents =
     -- This merge shouldn't lose any events, since only one of these events can
     -- occur at a time.
@@ -71,25 +70,25 @@ chatEvents =
 
 
 -- | Auto containing the chat logs.
-chatLogs :: (Monad m) => RoomAuto m [ChatEvent]
+chatLogs :: RoomAuto [ChatEvent]
 chatLogs = scanB_ (flip (:)) [] <<< chatEvents
 
 
 -- | Emits when a client requests chat logs.
-chatLogRequest :: forall m. (Monad m) => RoomAuto m (Blip Client)
+chatLogRequest :: RoomAuto (Blip Client)
 chatLogRequest = modifyBlips fst <<< requests
   where
-    requests :: RoomAuto m (Blip (Client, ChatLogRequest))
-    requests = msgsFromJSON
+    requests :: RoomAuto (Blip (Client, ChatLogRequest))
+    requests = decodedMsgs
 
 
 -- | A behavior that sends chat logs to clients when they are requested.
 sendChatLogs :: RoomBehavior
-sendChatLogs = sendMessages <<< perBlip encodeMessages <<< requestedLogs
+sendChatLogs = sendMessages <<< requestedLogs
   where
     -- | Blips with the contents of the chat log and a client to send
     -- them to whenever they are requested.
-    requestedLogs :: Monad m => RoomAuto m (Blip (Client, ChatLogMsg))
+    requestedLogs :: RoomAuto (Blip (Client, ChatLogMsg))
     requestedLogs =
         perBlip (second $ arr (ChatLogMsg . reverse))
                     <<< sample chatLogs chatLogRequest
@@ -97,49 +96,39 @@ sendChatLogs = sendMessages <<< perBlip encodeMessages <<< requestedLogs
 
 -- | Broadcasts chat events to all clients.
 sendChatEvents :: RoomBehavior
-sendChatEvents = broadcastMsgs (modifyBlips toJSONObj <<< chatEvents)
+sendChatEvents = broadcastMsgs chatEvents
 
   
 -------- JSON encoding/decoding stuff --------
 
-instance FromJSON ChatMsg where
-    parseJSON (Object v) = do
-        msgType <- v .: "type"
-        if ((msgType :: T.Text) == "chat-msg")
-           then ChatMsg "unknown" <$> v .: "msg"
-           else fail "not a chat message: wrong message type"
-    parseJSON _ = fail "expected an object"
+instance DecodeMsg ChatMsg where
+    parseMsg (MsgData "chat-msg" v) =
+        ChatMsg "unknown" <$> v .: "msg"
+    parseMsg _ = mzero
 
-instance ToJSONObject ChatMsg where
-    toJSONObj (ChatMsg sender message) = jsonObj
-        [ "type"   .= String "chat-msg"
-        , "sender" .= sender
+instance EncodeMsg ChatMsg where
+    encodeMsg (ChatMsg sender message) = msgData "chat-msg"
+        [ "sender" .= sender
         , "msg"    .= message ]
 
 
-instance ToJSONObject ChatEvent where
-    toJSONObj (ChatMsgEvt msg) = toJSONObj msg
-    toJSONObj (UserJoinEvt user) = jsonObj
-        [ "type" .= String "user-join"
-        , "user" .= user ]
-    toJSONObj (UserPartEvt user) = jsonObj
-        [ "type" .= String "user-part"
-        , "user" .= user ]
+instance EncodeMsg ChatEvent where
+    encodeMsg (ChatMsgEvt msg) = encodeMsg msg
+    encodeMsg (UserJoinEvt user) =
+        msgData "user-part" [ "user" .= user ]
+    encodeMsg (UserPartEvt user) =
+        msgData "user-part" [ "user" .= user ]
 
 instance ToJSON ChatEvent where
-    toJSON = Object . toJSONObj
+    toJSON = toJSON . encodeMsg
 
 
-instance ToJSONObject ChatLogMsg where
-    toJSONObj (ChatLogMsg messages) = jsonObj
-        [ "type" .= String "chat-logs"
-        , "msgs" .= messages ]
+instance EncodeMsg ChatLogMsg where
+    encodeMsg (ChatLogMsg messages) =
+        msgData "chat-logs" [ "msgs" .= messages ]
 
 
-instance FromJSON ChatLogRequest where
-    parseJSON (Object v) = do
-        msgType <- v .: "type"
-        if (msgType :: T.Text) == "chat-log-request"
-           then return ChatLogRequest
-           else mzero
-    parseJSON _ = fail "expected an object"
+instance DecodeMsg ChatLogRequest where
+    parseMsg (MsgData "chat-log-request" _) =
+        return ChatLogRequest
+    parseMsg _ = mzero

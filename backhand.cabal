@@ -51,6 +51,8 @@ executable backhand
   -- exposed-modules: Backhand.Core
   --                , Backhand.Connection
   other-modules: Backhand.Behavior.Chat
+               , Backhand.Behavior.Players
+               , Backhand.Behavior.Reversi
                , Backhand.Connection
                , Backhand.Core
                , Backhand.Room
@@ -77,10 +79,12 @@ executable backhand
                -- Data structures
                , containers
                , unordered-containers
+               , bimap
                , time
                -- Text and binary data
                , text
                , bytestring
+               , matrix
                -- Data Processing and Parsing
                , aeson
                -- Network

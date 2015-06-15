@@ -47,9 +47,9 @@ type WebSockM = ResourceT (StateT WebSockState IO)
 data ClientWebSockMsg
     = JoinRoom RoomId -- ^ "join" - Join the room with the given ID.
     | PartRoom RoomId -- ^ "part" - Leave the room with the given ID.
-    | MsgRoom RoomId Object -- ^ "msg" - Send the given JSON object to the room
-                            -- with the given ID. Should respond with an error
-                            -- if no such room exists.
+    | MsgRoom RoomId MsgData -- ^ "msg" - Send the given JSON object to the room
+                             -- with the given ID. Should respond with an error
+                             -- if no such room exists.
     deriving (Show)
 
 -- | Data structure which represents a message sent from the server over the
@@ -57,8 +57,8 @@ data ClientWebSockMsg
 data ServerWebSockMsg
     = JoinedRoom RoomId -- ^ "joined" - Successfully joined the given room.
     | PartedRoom RoomId -- ^ "parted" - Successfully left the given room.
-    | MsgFromRoom RoomId Object -- ^ "msg" - Received the given message from the
-                                -- given room.
+    | MsgFromRoom RoomId MsgData -- ^ "msg" - Received the given message from the
+                                 -- given room.
     | WebSockError T.Text -- ^ Indicates some sort of error occurred.
     deriving (Show)
 
