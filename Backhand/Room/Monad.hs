@@ -3,6 +3,7 @@ module Backhand.Room.Monad where
 
 import Prelude
 
+import Control.Applicative
 import Control.Concurrent.STM
 import Control.Monad.Trans
 

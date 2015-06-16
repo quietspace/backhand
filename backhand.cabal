@@ -65,7 +65,7 @@ executable backhand
                , Control.Concurrent.STM.TRLock
 
   -- Other library packages from which modules are imported.
-  build-depends: base >=4.6   && <4.9
+  build-depends: base >= 4.6 && <= 5
                -- Concurrency
                , async
                , stm
