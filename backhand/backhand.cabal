@@ -7,7 +7,7 @@ name:                backhand
 -- PVP summary:      +-+------- breaking API changes
 --                   | | +----- non-breaking API additions
 --                   | | | +--- code changes with no API change
-version:             0.0.0.0
+version:             0.1.0.0
 
 -- A short (one-line) description of the package.
 synopsis:            Back-end connection management system for Internet card games.
@@ -22,14 +22,14 @@ license:             MIT
 license-file:        LICENSE
 
 -- The package author(s).
-author:              Forkk
+author:              Andrew Okin
 
 -- An email address to which users can send suggestions, bug reports, and 
 -- patches.
-maintainer:          forkk@forkk.net
+maintainer:          Michael Borden (@taksuyu) <michael@ispabuse.org>
 
 -- A copyright notice.
--- copyright:           
+copyright:           2015 Quiet Space
 
 category:            Web
 
@@ -43,23 +43,30 @@ build-type:          Simple
 cabal-version:       >=1.10
 
 library
-  hs-source-dirs: src
-  ghc-options: -Wall
-  exposed-modules: Backhand
-  build-depends: base >= 4.6 && < 5
-               , hashable
-               , stm
-               , stm-containers
+  hs-source-dirs:   src
+  ghc-options:      -Wall
+  exposed-modules:  Backhand
+                  , Backhand.Channel
+                  , Backhand.Connection
+                  , Backhand.Unique
+  other-modules:    Backhand.Channel.Components
+  build-depends:    base >= 4.8 && < 5
+                  , hashable
+                  , stm
+                  , stm-containers
+                  , unagi-chan
   default-language: Haskell2010
-  default-extensions: MultiParamTypeClasses
 
 test-suite backhand-test
-  type: exitcode-stdio-1.0
-  hs-source-dirs: test
-  main-is: Test.hs
-  ghc-options: -Wall -threaded
-  build-depends: base
-               , backhand
-               , tasty
-               , tasty-hunit
+  type:             exitcode-stdio-1.0
+  hs-source-dirs:   test
+  main-is:          Test.hs
+  ghc-options:      -Wall -threaded
+  build-depends:    base
+                  , backhand
+                  , stm
+                  , stm-containers
+                  , tasty
+                  , tasty-hunit
+                  , unagi-chan
   default-language: Haskell2010

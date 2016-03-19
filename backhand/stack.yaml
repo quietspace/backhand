@@ -2,5 +2,5 @@ flags:
 packages:
 - '.'
 extra-deps:
-- bimap-0.3.0
-resolver: lts-3.5
+- unagi-chan-0.4.0.0
+resolver: lts-3.15
