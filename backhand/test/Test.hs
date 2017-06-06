@@ -1,60 +1,108 @@
+{-# LANGUAGE TemplateHaskell #-}
+
 module Main where
 
-import Control.Concurrent.STM
-import Data.Maybe
-import STMContainers.Map      as M
-import Test.Tasty
-import Test.Tasty.HUnit
-
 import Backhand
+import Backhand.Channel
+import Control.Concurrent.STM
+import Control.Monad
+import Data.Map                as Map
+import Data.Word
+import STMContainers.Map       as STM
+import System.Exit
+import Test.QuickCheck
+import Test.QuickCheck.All     (quickCheckAll)
+import Test.QuickCheck.Monadic
+
+-- * Model Testing Library
+
+-- Maybe the 'm' is useless, could just be 'IO'
+data Op e x m = Op
+    { opName :: String
+    , opRun :: e -> x -> PropertyM m x
+    }
+
+-- Sorry :(
+instance Show (Op e x m) where
+    showsPrec p (Op name _) =
+        showParen (p > 10) $ showString "Op " . shows name
+
+runOps :: IO e -> x -> [Gen (Op e x IO)] -> Property
+runOps newEnv model0 operations =
+    forAll (listOf $ oneof operations) $
+    \ops ->
+         monadicIO $
+         do env <- run newEnv
+            let loop model (Op _ run') = run' env model
+            foldM loop model0 ops
+
+-- ** Channel Map Model
+
+newtype ChannelId =
+    ChannelId Word64
+    deriving (Show,Eq,Ord)
+
+increment :: ChannelId -> ChannelId
+increment (ChannelId cid) = ChannelId (cid + 1)
+
+genChannelId :: Gen ChannelId
+genChannelId = ChannelId <$> arbitrarySizedBoundedIntegral
+
+data Model = Model
+    { mChannels :: Map.Map ChannelId UniqueChanId
+    , mNext :: ChannelId
+    }
+
+emptyModel :: Model
+emptyModel = Model Map.empty (ChannelId 0)
+
+-- ** Operations
+
+opAddNew :: Gen (Op (ChannelMap a) Model IO)
+opAddNew =
+    pure . Op "add-new" $
+    \chm (Model cs0 n0) -> do
+        uniq <- run $ addNewChannel chm
+        sz <- run $ channelMapSize chm
+        let cs = Map.insert n uniq cs0
+            n = increment n0
+        assert $ sz == Map.size cs
+        pure $ Model cs n
+
+opDelete :: Gen (Op (ChannelMap a) Model IO)
+opDelete = do
+    ix0 <- abs <$> arbitrarySizedBoundedIntegral
+    pure . Op ("delete: " ++ show ix0) $
+        \chm m0@(Model cs0 n) -> do
+            if Map.null cs0
+                then pure m0
+                else do
+                    let ix = ix0 `mod` Map.size cs0
+                        (cid,uniq) = Map.toList cs0 !! ix
+                    run $ delChannel' uniq chm
+                    sz <- run $ channelMapSize chm
+                    let cs = Map.delete cid cs0
+                    assert $ sz == Map.size cs
+                    pure $ Model cs n
+
+channelMapSize :: ChannelMap a -> IO Int
+channelMapSize m = atomically $ STM.size m
+
+-- * Tests
+
+prop_test_model :: Property
+prop_test_model = runOps newChannelMap emptyModel [opAddNew, opDelete]
+
+return [] -- Needed for quickcheck TH because of a bug as of GHC 8
+tests :: IO Bool
+tests = $quickCheckAll
+
+-- * Main
 
 main :: IO ()
-main = defaultMain $
-  testGroup "Backhand testing"
-    [ testGroup "Channel sanity"
-      [ testCase "subchannels on Lobby returns a Just"
-        $ subchannelsOnChannelLobby
-        @? "subchannels on Lobby returns a Nothing"
-
-      , testCase "subchannels on Room returns a Nothing"
-        $ subchannelsOnChannels
-        @? "subchannels on Room returns a Just"
-      ]
-
-    , testGroup "BMap sanity"
-      [ testCase "Can insert channels into a BMap"
-        $ fmap fst bMapInteractionTests
-        @? "Couldn't add channel to the BMap"
-
-      , testCase "Can delete a channel from a BMap"
-        $ fmap snd bMapInteractionTests
-        @? "Couldn't delete the channel from the BMap."
-      ]
-    ]
-
-subchannelsOnChannelLobby :: IO Bool
-subchannelsOnChannelLobby = do
-  testLobby <- newLobby []
-  pure (isJust $ subchannels testLobby)
-
-subchannelsOnChannels :: IO Bool
-subchannelsOnChannels = do
-  testRoom <- newRoom []
-  pure (isNothing $ subchannels testRoom)
-
-bMapInteractionTests :: IO (Bool, Bool)
-bMapInteractionTests = do
-  -- spawns a worker thread that will clean up channels over a unagi channel.
-  bmap <- newBMap
-
-  -- Inserting a channel that will be cleaned up.
-  room <- newRoom []
-  insertTest <- atomically $ do
-    M.insert room (chanId room) (unBMap bmap)
-    M.null (unBMap bmap)
-
-  deleteTest <- atomically $ do
-    M.delete (chanId room) (unBMap bmap)
-    M.null (unBMap bmap)
-
-  pure (not insertTest, deleteTest)
+main =
+    tests >>=
+    \result ->
+         case result of
+             True -> exitSuccess
+             False -> exitFailure

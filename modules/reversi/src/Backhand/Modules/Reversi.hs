@@ -1,58 +1,73 @@
 module Backhand.Modules.Reversi where
 
 import Backhand
-import Backhand.Connection
+import Backhand.Message
+import Backhand.Unique
+import Control.Concurrent.Chan.Unagi.Bounded
 import Data.Maybe
 
 import Game.Reversi
 
-data Reversi
-  = Reversi
-    { mid         :: UniqueModId
-    , lightPlayer :: Maybe LightPlayer
-    , darkPlayer  :: Maybe DarkPlayer
-    , rBoard      :: Board
-    , turn        :: Player
+data Reversi = Reversi
+    { mid :: UniqueModuleId
+    , lightPlayer :: LightPlayer
+    , darkPlayer :: DarkPlayer
+    , rBoard :: Board
+    , turn :: Player
     }
 
--- FIXME?: Probably a better way to do this than use pure all the time.
-newReversi :: IO Reversi
-newReversi = pure Reversi
-             <*> newModId
-             -- Players aren't set because we need their connection ids.
-             <*> pure Nothing
-             <*> pure Nothing
-             -- Board state stoof.
-             <*> pure newBoard
-             <*> pure Dark
+newReversi :: (LightPlayer, DarkPlayer) -> IO Reversi
+newReversi (lp,dp) =
+    pure Reversi <*> newModuleId <*> pure lp <*> pure dp <*> pure newBoard <*>
+    pure Dark
 
-startReversiGame :: (c -> ReversiMsg) -> OutChan c -> IO ()
-startReversiGame fn chan = do
-  -- Recursive function that blocks until both player slots are filled.
-  (light, dark) <- fillPlayerSlots fn chan
+-- startReversiGame :: (c -> Message ReversiMsg) -> OutChan c -> IO ()
+-- startReversiGame fn chan =
+--     -- Recursive function that blocks until both player slots are filled.
+--     fillPlayerSlots
+--         fn
+--         chan
+--     -- Take the players and generate a new game.
+--     >>=
+--     newReversi
+--     -- Now let the games begin.
+--     >>=
+--     reversiGameLoop chan
 
-  pure ()
-
-fillPlayerSlots :: (c ->  ReversiMsg) -> OutChan c -> IO (LightPlayer, DarkPlayer)
+fillPlayerSlots :: (c -> Message ReversiMsg)
+                -> OutChan c
+                -> IO (LightPlayer, DarkPlayer)
 fillPlayerSlots fn chan = tryFillPlayerSlot Nothing Nothing
   where
-    tryFillPlayerSlot :: Maybe LightPlayer -> Maybe DarkPlayer -> IO (LightPlayer, DarkPlayer)
+    tryFillPlayerSlot :: Maybe LightPlayer
+                      -> Maybe DarkPlayer
+                      -> IO (LightPlayer, DarkPlayer)
+    -- Once we have both player slots filled we'll exit with those players.
     tryFillPlayerSlot (Just l) (Just d) = pure (l, d)
     tryFillPlayerSlot ml md = do
-      rmsg <- readChan chan -- blocks until fufilled
-      case fn rmsg of
-        (Join Light u) -> if isNothing ml
-                          then tryFillPlayerSlot (Just $ LightPlayer u) md
-                          else tryFillPlayerSlot ml md
-        (Join Dark u) -> if isNothing md
-                         then tryFillPlayerSlot ml (Just $ DarkPlayer u)
-                         else tryFillPlayerSlot ml md
+        rmsg <- readChan chan -- blocks until fufilled
+        case fn rmsg of
+            (u,Join Light) ->
+                case ml of
+                    -- Fill the player slot
+                    -- TODO: Broadcast the new player
+                    Nothing -> tryFillPlayerSlot (Just $ LightPlayer u) md
+                    -- Already exists
+                    -- TODO: Return a warning to the sender
+                    Just _ -> tryFillPlayerSlot ml md
+            (u,Join Dark) ->
+                case md of
+                    Nothing -> tryFillPlayerSlot ml (Just $ DarkPlayer u)
+                    Just _ -> tryFillPlayerSlot ml md
+
+-- reversiGameLoop :: OutChan c -> Reversi -> IO ()
+-- reversiGameLoop chan game = _
 
 data LightPlayer
-  = LightPlayer UniqueConnId
+  = LightPlayer UniqueRequesterId
 
 data DarkPlayer
-  = DarkPlayer UniqueConnId
+  = DarkPlayer UniqueRequesterId
 
 data ReversiMsg
-  = Join Player UniqueConnId
+  = Join Player

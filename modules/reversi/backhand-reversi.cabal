@@ -4,8 +4,8 @@ synopsis:            Reversi module for backhand
 description:         Please see README.md
 license:             MIT
 license-file:        LICENSE
-author:              Michael Borden (@taksuyu)
-maintainer:          Michael Borden (@taksuyu) <michael@ispabuse.org>
+author:              Michael Borden
+maintainer:          Michael Borden <michael@quiet.space>
 copyright:           2015 Quiet Space
 category:            Web
 build-type:          Simple
@@ -14,8 +14,10 @@ cabal-version:       >=1.10
 library
   hs-source-dirs:      src
   exposed-modules:     Backhand.Modules.Reversi
+                     , Game.Reversi
   build-depends:       base >= 4.7 && < 5
                      , backhand
                      , matrix
                      , text
+                     , unagi-chan >= 0.4
   default-language:    Haskell2010
