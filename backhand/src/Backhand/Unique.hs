@@ -21,16 +21,6 @@ instance ToJSON ChanUUID
 newChanUUID :: IO ChanUUID
 newChanUUID = fmap ChanUUID randomIO
 
-newtype ModuleUUID =
-    ModuleUUID UUID
-    deriving (Eq, Hashable, Generic)
-
-instance FromJSON ModuleUUID
-instance ToJSON ModuleUUID
-
-newModuleUUID :: IO ModuleUUID
-newModuleUUID = fmap ModuleUUID randomIO
-
 -- | Unique identification for connections.
 newtype UniqueRequester =
     UniqueRequester Unique

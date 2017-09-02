@@ -10,6 +10,7 @@ import Control.Concurrent.Chan.Unagi.Bounded
 import Control.Concurrent.STM
 import Data.Aeson
 import Data.Semigroup.Bitraversable
+import Data.Text
 import ListT
 
 import Backhand.Message
@@ -28,10 +29,10 @@ newRequester = pure (,) <*> newRequesterId <*> newChan 10
 
 -- ** Modules
 
-type Modules c = M.Map ModuleUUID (InChan c)
+type Modules c = M.Map Text (InChan c)
 
-newModule :: IO (ModuleUUID, Unagi c)
-newModule = pure (,) <*> newModuleUUID <*> newChan 10
+newModule :: Text -> IO (Text, Unagi c)
+newModule t = pure (,) <*> pure t <*> newChan 10
 
 -- ** Channel
 

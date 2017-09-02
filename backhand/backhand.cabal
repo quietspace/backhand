@@ -1,5 +1,5 @@
 name:                backhand
-version:             0.2.0
+version:             0.3.0
 synopsis:            Back-end session management toolkit.
 license:             MIT
 license-file:        LICENSE
@@ -30,6 +30,7 @@ library
                   , semigroupoids
                   , stm
                   , stm-containers
+                  , text
                   , unagi-chan
                   , unique
                   , uuid

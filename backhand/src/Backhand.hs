@@ -30,8 +30,6 @@ module Backhand
   , newChanUUID
   , UniqueRequester
   , newRequesterId
-  , ModuleUUID
-  , newModuleUUID
    -- * Message types
   , Message
   , ConnectionData(..)

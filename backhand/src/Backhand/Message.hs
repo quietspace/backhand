@@ -6,6 +6,7 @@ module Backhand.Message where
 import GHC.Generics
 
 import Data.Aeson
+import Data.Text
 
 import Backhand.Unique
 
@@ -15,19 +16,14 @@ import Backhand.Unique
 -- who sent us this message.
 type Message m = (UniqueRequester, m)
 
-req :: Message m -> UniqueRequester
-req = fst
-
-msg :: Message m -> m
-msg = snd
-
+-- TODO: Clean up
 data ConnectionData c = ConnectionData
     { -- | Hashed room unique to allow the connector to know where to send the
       -- message back to.
       conRoomId :: ChanUUID
 
       -- | Type for modules to filter out if the message is intended for them.
-    ,  conModId :: ModuleUUID
+    ,  conModId :: Text
 
       -- | Package message for the client/module.
     ,  conMessage :: c

@@ -9,8 +9,7 @@ import Data.Maybe
 import Game.Reversi
 
 data Reversi = Reversi
-    { mid :: ModuleUUID
-    , lightPlayer :: LightPlayer
+    { lightPlayer :: LightPlayer
     , darkPlayer :: DarkPlayer
     , rBoard :: Board
     , turn :: Player
@@ -18,7 +17,7 @@ data Reversi = Reversi
 
 newReversi :: (LightPlayer, DarkPlayer) -> IO Reversi
 newReversi (lp,dp) =
-    pure Reversi <*> newModuleUUID <*> pure lp <*> pure dp <*> pure newBoard <*>
+    pure Reversi <*> pure lp <*> pure dp <*> pure newBoard <*>
     pure Dark
 
 -- startReversiGame :: (c -> Message ReversiMsg) -> OutChan c -> IO ()
