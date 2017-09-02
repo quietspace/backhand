@@ -13,6 +13,7 @@ module Backhand
   , joinChannel'
   , leaveChannel
   , sendMessage
+  , findChannel
   , isChannelPresent
   , broadcast
   , broadcastOthers
