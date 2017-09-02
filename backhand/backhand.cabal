@@ -1,5 +1,5 @@
 name:                backhand
-version:             0.1.0
+version:             0.2.0
 synopsis:            Back-end session management toolkit.
 license:             MIT
 license-file:        LICENSE
@@ -20,16 +20,20 @@ library
                   , Backhand.Channel
                   , Backhand.Lobby
                   , Backhand.Message
-                  , Backhand.Requester
                   , Backhand.Unique
   -- other-modules:
   build-depends:    base >= 4.8 && < 5
+                  , aeson
                   , hashable
+                  , list-t
+                  , random
                   , semigroupoids
                   , stm
                   , stm-containers
                   , unagi-chan
                   , unique
+                  , uuid
+                  , uuid-aeson
   default-language: Haskell2010
 
 test-suite backhand-test

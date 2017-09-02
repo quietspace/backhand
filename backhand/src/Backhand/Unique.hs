@@ -1,30 +1,40 @@
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE DeriveGeneric, GeneralizedNewtypeDeriving #-}
 
 module Backhand.Unique where
-s
+
+import GHC.Generics
+
+import Data.Aeson
 import Data.Hashable
+import Data.UUID
+import Data.UUID.Aeson ()
 import Control.Concurrent.Unique
+import System.Random
 
--- | Unique identification for `Channel`s.
-newtype UniqueChanId =
-    UniqueChanId Unique
-    deriving (Eq,Ord,Hashable)
+newtype ChanUUID =
+    ChanUUID UUID
+    deriving (Eq, Hashable, Generic)
 
-newChanId :: IO UniqueChanId
-newChanId = fmap UniqueChanId newUnique
+instance FromJSON ChanUUID
+instance ToJSON ChanUUID
 
--- | Unique identification for modules.
-newtype UniqueModuleId =
-    UniqueModuleId Unique
-    deriving (Eq,Ord,Hashable)
+newChanUUID :: IO ChanUUID
+newChanUUID = fmap ChanUUID randomIO
 
-newModuleId :: IO UniqueModuleId
-newModuleId = fmap UniqueModuleId newUnique
+newtype ModuleUUID =
+    ModuleUUID UUID
+    deriving (Eq, Hashable, Generic)
+
+instance FromJSON ModuleUUID
+instance ToJSON ModuleUUID
+
+newModuleUUID :: IO ModuleUUID
+newModuleUUID = fmap ModuleUUID randomIO
 
 -- | Unique identification for connections.
-newtype UniqueRequesterId =
-    UniqueRequesterId Unique
-    deriving (Eq,Ord,Hashable)
+newtype UniqueRequester =
+    UniqueRequester Unique
+    deriving (Eq, Hashable)
 
-newRequesterId :: IO UniqueRequesterId
-newRequesterId = fmap UniqueRequesterId newUnique
+newRequesterId :: IO UniqueRequester
+newRequesterId = fmap UniqueRequester newUnique

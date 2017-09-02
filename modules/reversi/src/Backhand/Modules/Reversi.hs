@@ -9,7 +9,7 @@ import Data.Maybe
 import Game.Reversi
 
 data Reversi = Reversi
-    { mid :: UniqueModuleId
+    { mid :: ModuleUUID
     , lightPlayer :: LightPlayer
     , darkPlayer :: DarkPlayer
     , rBoard :: Board
@@ -18,7 +18,7 @@ data Reversi = Reversi
 
 newReversi :: (LightPlayer, DarkPlayer) -> IO Reversi
 newReversi (lp,dp) =
-    pure Reversi <*> newModuleId <*> pure lp <*> pure dp <*> pure newBoard <*>
+    pure Reversi <*> newModuleUUID <*> pure lp <*> pure dp <*> pure newBoard <*>
     pure Dark
 
 -- startReversiGame :: (c -> Message ReversiMsg) -> OutChan c -> IO ()
@@ -64,10 +64,10 @@ fillPlayerSlots fn chan = tryFillPlayerSlot Nothing Nothing
 -- reversiGameLoop chan game = _
 
 data LightPlayer
-  = LightPlayer UniqueRequesterId
+  = LightPlayer UniqueRequester
 
 data DarkPlayer
-  = DarkPlayer UniqueRequesterId
+  = DarkPlayer UniqueRequester
 
 data ReversiMsg
   = Join Player

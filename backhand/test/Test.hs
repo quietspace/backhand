@@ -3,7 +3,6 @@
 module Main where
 
 import Backhand
-import Backhand.Channel
 import Control.Concurrent.STM
 import Control.Monad
 import Data.Map                as Map
@@ -49,7 +48,7 @@ genChannelId :: Gen ChannelId
 genChannelId = ChannelId <$> arbitrarySizedBoundedIntegral
 
 data Model = Model
-    { mChannels :: Map.Map ChannelId UniqueChanId
+    { mChannels :: Map.Map ChannelId ChanUUID
     , mNext :: ChannelId
     }
 
@@ -58,7 +57,7 @@ emptyModel = Model Map.empty (ChannelId 0)
 
 -- ** Operations
 
-opAddNew :: Gen (Op (ChannelMap a) Model IO)
+opAddNew :: Gen (Op (ChannelMap c s) Model IO)
 opAddNew =
     pure . Op "add-new" $
     \chm (Model cs0 n0) -> do
@@ -69,7 +68,7 @@ opAddNew =
         assert $ sz == Map.size cs
         pure $ Model cs n
 
-opDelete :: Gen (Op (ChannelMap a) Model IO)
+opDelete :: Gen (Op (ChannelMap c s) Model IO)
 opDelete = do
     ix0 <- abs <$> arbitrarySizedBoundedIntegral
     pure . Op ("delete: " ++ show ix0) $
@@ -85,13 +84,13 @@ opDelete = do
                     assert $ sz == Map.size cs
                     pure $ Model cs n
 
-channelMapSize :: ChannelMap a -> IO Int
+channelMapSize :: ChannelMap c s -> IO Int
 channelMapSize m = atomically $ STM.size m
 
 -- * Tests
 
 prop_test_model :: Property
-prop_test_model = runOps newChannelMap emptyModel [opAddNew, opDelete]
+prop_test_model = runOps (atomically newChannelMap) emptyModel [opAddNew, opDelete]
 
 return [] -- Needed for quickcheck TH because of a bug as of GHC 8
 tests :: IO Bool

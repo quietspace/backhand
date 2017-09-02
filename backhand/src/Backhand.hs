@@ -1,7 +1,6 @@
 module Backhand
 -- * Aliases
-  ( Requester
-  , Unagi
+  ( Unagi
    -- * Channel
   , Channel
   , newChannel
@@ -9,25 +8,39 @@ module Backhand
   , newChannelMap
   , addChannel
   , addChannel'
+  , addNewChannel
+  , joinChannel
+  , joinChannel'
+  , leaveChannel
+  , sendMessage
+  , isChannelPresent
+  , broadcast
+  , broadcastOthers
   , delChannel
   , delChannel'
+  , Requesters
+  , newRequester
+  , Modules
+  , newModule
    -- * Lobby
   , Lobby
   , newLobby
    -- * Unique Identifiers
-  , UniqueChanId
-  , newChanId
-  , UniqueRequesterId
+  , ChanUUID
+  , newChanUUID
+  , UniqueRequester
   , newRequesterId
-  , UniqueModuleId
-  , newModuleId
+  , ModuleUUID
+  , newModuleUUID
    -- * Message types
   , Message
   , ConnectionData(..)
+   -- * Status
+  , BackhandChannelStatus(..)
+  , BackhandMessageStatus(..)
   ) where
 
 import Backhand.Channel
 import Backhand.Lobby
 import Backhand.Message
-import Backhand.Requester
 import Backhand.Unique
