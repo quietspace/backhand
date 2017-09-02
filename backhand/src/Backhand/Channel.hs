@@ -122,8 +122,15 @@ sendMessage cmap (ConnectionData chanUUID moduleUUID clientMessage) = do
     Nothing ->
       pure SendFailure
 
--- NOTE: Introduce Text tags for modules would reduce dev usage for describing channels.
--- findChannel :: ChannelMap c s -> ChanUUID -> (ChanUUID, [(Text, ModuleUUID)])
+findChannel :: ChannelMap c s -> ChanUUID -> IO (Maybe (ChanUUID, [Text]))
+findChannel cmap uuid =
+  atomically $ do
+    channel <- M.lookup uuid cmap
+    case channel of
+      Just (_, moduleMap) -> do
+        modules <- fold (\ r (mText, _) -> pure (mText : r) ) [] $ M.stream moduleMap
+        pure $ Just (uuid, modules)
+      Nothing -> pure Nothing
 
 -- | If channel exists by our `ChanUUID`
 isChannelPresent :: ChannelMap c s -> ChanUUID -> IO Bool
