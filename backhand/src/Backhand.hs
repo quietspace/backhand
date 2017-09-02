@@ -26,7 +26,7 @@ module Backhand
   , Lobby
   , newLobby
    -- * Unique Identifiers
-  , ChanUUID
+  , ChanUUID(..)
   , newChanUUID
   , UniqueRequester
   , newRequesterId
