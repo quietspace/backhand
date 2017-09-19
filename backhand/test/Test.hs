@@ -26,7 +26,7 @@ instance Show (Op e x m) where
     showsPrec p (Op name _) =
         showParen (p > 10) $ showString "Op " . shows name
 
-runOps :: IO e -> x -> [Gen (Op e x IO)] -> Property
+runOps :: Testable x => IO e -> x -> [Gen (Op e x IO)] -> Property
 runOps newEnv model0 operations =
     forAll (listOf $ oneof operations) $
     \ops ->
@@ -52,6 +52,9 @@ data Model = Model
     , mNext :: ChannelId
     }
 
+instance Testable Model where
+  property m = runOps (atomically newChannelMap) m [opAddNew, opDelete]
+
 emptyModel :: Model
 emptyModel = Model Map.empty (ChannelId 0)
 
@@ -72,7 +75,7 @@ opDelete :: Gen (Op (ChannelMap c s) Model IO)
 opDelete = do
     ix0 <- abs <$> arbitrarySizedBoundedIntegral
     pure . Op ("delete: " ++ show ix0) $
-        \chm m0@(Model cs0 n) -> do
+        \chm m0@(Model cs0 n) ->
             if Map.null cs0
                 then pure m0
                 else do
@@ -90,7 +93,7 @@ channelMapSize m = atomically $ STM.size m
 -- * Tests
 
 prop_test_model :: Property
-prop_test_model = runOps (atomically newChannelMap) emptyModel [opAddNew, opDelete]
+prop_test_model = property emptyModel
 
 return [] -- Needed for quickcheck TH because of a bug as of GHC 8
 tests :: IO Bool
@@ -100,8 +103,5 @@ tests = $quickCheckAll
 
 main :: IO ()
 main =
-    tests >>=
-    \result ->
-         case result of
-             True -> exitSuccess
-             False -> exitFailure
+  tests >>= \result ->
+  if result then exitSuccess else exitFailure

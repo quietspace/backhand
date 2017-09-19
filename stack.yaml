@@ -8,4 +8,4 @@ extra-deps:
   - unagi-chan-0.4.0.0
   - unique-0
   - uuid-aeson-0.1.0.0
-resolver: lts-7.12
+resolver: lts-9.5
