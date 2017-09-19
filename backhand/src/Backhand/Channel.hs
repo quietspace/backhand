@@ -58,6 +58,9 @@ type ChannelMap clientMsg serverMsg = M.Map ChanUUID (Channel clientMsg serverMs
 newChannelMap :: STM (ChannelMap c s)
 newChannelMap = M.new
 
+newChannelMapIO :: IO (ChannelMap c s)
+newChannelMapIO = M.newIO
+
 -- * Utility
 
 -- | Interacting with `Channel`s and `ChannelMap`s are the reason this library

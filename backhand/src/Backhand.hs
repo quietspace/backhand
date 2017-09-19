@@ -6,6 +6,7 @@ module Backhand
   , newChannel
   , ChannelMap
   , newChannelMap
+  , newChannelMapIO
   , addChannel
   , addChannel'
   , addNewChannel
