@@ -1,13 +1,12 @@
 name:                backhand
-version:             0.3.0
+version:             0.4.0
 synopsis:            Back-end session management toolkit.
 license:             MIT
 license-file:        LICENSE
 author:              Andrew Okin, Michael Borden
 maintainer:          Michael Borden <michael@quiet.space>
-copyright:           2015 Quiet Space
+copyright:           2017 Quiet Space
 
-category:            Web
 build-type:          Simple
 cabal-version:       >=1.10
 
@@ -20,8 +19,6 @@ library
                   , Backhand.Channel
                   , Backhand.Lobby
                   , Backhand.Message
-                  , Backhand.Unique
-  -- other-modules:
   build-depends:    base >= 4.8 && < 5
                   , aeson
                   , hashable
