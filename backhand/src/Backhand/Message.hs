@@ -1,23 +1,29 @@
 {-# LANGUAGE DeriveFunctor, DeriveFoldable, DeriveGeneric,
-  DeriveTraversable #-}
+  DeriveTraversable, DuplicateRecordFields #-}
 
 module Backhand.Message where
 
 import GHC.Generics
 
+import Control.Concurrent.Unique
 import Data.Aeson
-import Data.Text
+import Data.UUID
 
-import Backhand.Unique
+-- | Internal messaging to and from a Requester
+data Message c = Message
+  { unique :: Unique
+  , message :: c
+  } deriving (Functor, Foldable, Traversable, Generic)
 
--- | It's common to tag a message with the requester's unique id and we can make
--- this simple to think about by showing that it is a Functor. This lets us keep
--- `UniqueRequesterId` out of every constructer that requires information about
--- who sent us this message.
-type Message m = (UniqueRequester, m)
+-- | Communication within backhand doesn't have to be 1 to 1 so a requester may
+-- be present in multiple `Channel`s at once; to simplify the process
+-- `ConnectionData` can be used to identify a `Channel` within a `ChannelMap`
+-- and then a `Module` by it's `Text` within the `Channel`.
+data ConnectionData t c = ConnectionData
+  { uuid :: UUID
+  , service :: t
+  , message :: c
+  } deriving (Functor, Foldable, Traversable, Generic)
 
-data ConnectionData c = ConnectionData ChanUUID Text c
-  deriving (Functor, Foldable, Traversable, Generic)
-
-instance FromJSON c => FromJSON (ConnectionData c)
-instance ToJSON c => ToJSON (ConnectionData c)
+instance (FromJSON t, FromJSON c) => FromJSON (ConnectionData t c)
+instance (ToJSON t, ToJSON c) => ToJSON (ConnectionData t c)

@@ -1,8 +1,8 @@
 flags: {}
 extra-package-dbs: []
 packages:
-  - backhand/
-  - modules/reversi/
+  - backhand
+  - backhand-reversi
 extra-deps:
   - focus-0.1.5
   - unagi-chan-0.4.0.0

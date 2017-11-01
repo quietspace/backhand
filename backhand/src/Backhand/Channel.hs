@@ -1,6 +1,43 @@
-{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveGeneric, DisambiguateRecordFields, NamedFieldPuns #-}
 
-module Backhand.Channel where
+module Backhand.Channel (
+  -- * Clients
+  Clients(..),
+  addClient,
+  delClient,
+  Client(..),
+  newDefaultClient,
+  newClientBoundedBy,
+
+  -- * Services
+  Services(..),
+  newService,
+
+  -- * Channel
+  Channel(..),
+  newChannel,
+
+  -- * Channels
+  Channels(..),
+  newChannels,
+  newChannelsIO,
+  addChannel,
+  addChannelIO,
+  addNewChannel,
+  delChannel,
+  delChannelIO,
+  joinChannel,
+  joinChannelIO,
+
+  -- * Utility
+  BackhandErrorCase(..),
+  leaveChannel,
+  sendMessage,
+  findChannel,
+  isChannelPresent,
+  broadcast,
+  broadcastOthers,
+  ) where
 
 import qualified STMContainers.Map as M
 
@@ -8,169 +45,186 @@ import GHC.Generics
 
 import Control.Concurrent.Chan.Unagi.Bounded
 import Control.Concurrent.STM
+import Control.Concurrent.Unique
 import Data.Aeson
-import Data.Semigroup.Bitraversable
-import Data.Text
+import Data.Hashable
+import Data.UUID
 import ListT
+import System.Random (randomIO)
 
 import Backhand.Message
-import Backhand.Unique
+import Backhand.Unagi
 
--- * Types
+-- Clients --
 
-type Unagi a = (InChan a, OutChan a)
+newtype Clients s = Clients { unClients :: M.Map Unique (InChan s) }
 
--- ** Requesters
+addClient :: Client s -> Clients s -> STM ()
+addClient Client{ unique, unagi } =
+  M.insert (inChan unagi) unique . unClients
 
-type Requesters c = M.Map UniqueRequester (InChan c)
+delClient :: Client s -> Clients s -> STM ()
+delClient Client{ unique } =
+  M.delete unique . unClients
 
-newRequester :: IO (UniqueRequester, Unagi c)
-newRequester = pure (,) <*> newRequesterId <*> newChan 10
+data Client s = Client
+  { unique :: Unique
+  , unagi :: Unagi s
+  }
 
--- ** Modules
+newDefaultClient :: IO (Client s)
+newDefaultClient = newClientBoundedBy 10
 
-type Modules c = M.Map Text (InChan c)
+newClientBoundedBy :: Int -> IO (Client s)
+newClientBoundedBy n =
+  pure Client <*> newUnique <*> newUnagiBoundedBy n
 
-newModule :: Text -> IO (Text, Unagi c)
-newModule t = pure (,) <*> pure t <*> newChan 10
+instance Messenger Client where
+  sendWith Client{ unagi } = sendWith unagi
+  readWith Client{ unagi } = readWith unagi
 
--- ** Channel
+-- Modules --
 
+newtype Services t c = Services { unServices :: M.Map t (InChan c) }
+
+newService :: t -> IO (t, Unagi c)
+newService t = pure (,) <*> pure t <*> newUnagi
+
+-- Channel --
+
+-- TODO: Rewrite doc
 -- | Our product type for channel communications. Requestors are your abstract
 -- clients; you will most likely want those clients to be managed and act as the
 -- middleman for your providers. Modules are your abstract services which can
 -- be anything from a game, a chat server, a client to another server, etc.
-type Channel clientMsg serverMsg = (Requesters serverMsg, Modules clientMsg)
+data Channel t c s = Channel
+  { services :: Services t c
+  , clients :: Clients s
+  }
 
 -- | Helper function to help you get started.
-newChannel :: IO (ChanUUID, Channel c s)
-newChannel = bitraverse1 id bisequence1 (newChanUUID, (M.newIO, M.newIO))
+newChannel :: IO (UUID, Channel t c s)
+newChannel = pure (,) <*> randomIO <*> (pure Channel <*> fmap Services M.newIO <*> fmap Clients M.newIO)
 
--- ** ChannelMap
+-- Channels --
 
--- | The ChannelMap is the backbone of our routing type. This will be the
+-- | The Channels is the backbone of our routing type. This will be the
 -- structure you interact with to start new connections, delete old channels by
 -- their `ChanUUID`, and ultimately any action that has to do with creating
 -- a new channel.
-type ChannelMap clientMsg serverMsg = M.Map ChanUUID (Channel clientMsg serverMsg)
+newtype Channels t c s = Channels { unChannels :: M.Map UUID (Channel t c s) }
 
 -- | Helper function to help you get started.
-newChannelMap :: STM (ChannelMap c s)
-newChannelMap = M.new
+newChannels :: STM (Channels t c s)
+newChannels = fmap Channels M.new
 
-newChannelMapIO :: IO (ChannelMap c s)
-newChannelMapIO = M.newIO
+newChannelsIO :: IO (Channels t c s)
+newChannelsIO = fmap Channels M.newIO
 
--- * Utility
+addChannel :: UUID -> Channel t c s -> Channels t c s -> STM ()
+addChannel u channel = M.insert channel u . unChannels
 
--- | Interacting with `Channel`s and `ChannelMap`s are the reason this library
--- exists so we provide some very basic functions for interactions between them.
--- You will want to wrap these in your own logic; such as creating a new
--- chatroom you'll add that chatroom instance (in this case a `Channel`) to the
--- chat server (in this case the `ChannelMap`).
+addChannelIO :: UUID -> Channel t c s -> Channels t c s -> IO ()
+addChannelIO u ch chm = atomically $ addChannel u ch chm
 
-addChannel :: ChanUUID -> Channel c s -> ChannelMap c s -> STM ()
-addChannel u (r, m) = M.insert (r, m) u
-
-addChannel' :: ChanUUID -> Channel c s -> ChannelMap c s -> IO ()
-addChannel' u ch chm = atomically $ addChannel u ch chm
-
-addNewChannel :: ChannelMap c s -> IO ChanUUID
+-- | Convience function for creating a `newChannel` and adding it to an existing
+-- `Channels`.
+addNewChannel :: Channels t c s -> IO UUID
 addNewChannel chm = do
-    (u, ch) <- newChannel
-    addChannel' u ch chm
-    pure u
+  (u, ch) <- newChannel
+  addChannelIO u ch chm
+  pure u
 
-delChannel :: ChanUUID -> ChannelMap c s -> STM ()
-delChannel = M.delete
+delChannel :: UUID -> Channels t c s -> STM ()
+delChannel u = M.delete u . unChannels
 
-delChannel' :: ChanUUID -> ChannelMap c s -> IO ()
-delChannel' cid chm = atomically $ delChannel cid chm
+delChannelIO :: UUID -> Channels t c s -> IO ()
+delChannelIO cid chm = atomically $ delChannel cid chm
 
-joinChannel :: UniqueRequester -> InChan s -> ChanUUID -> ChannelMap c s -> STM BackhandChannelStatus
-joinChannel rid inChan uuid cmap = do
-  channel <- M.lookup uuid cmap
+joinChannel :: Client s -> UUID -> Channels t c s -> STM (Either BackhandErrorCase ())
+joinChannel client uuid channels = do
+  channel <- M.lookup uuid (unChannels channels)
   case channel of
-    Just (r, _) -> do
-      M.insert inChan rid r
-      pure ChannelJoinSuccess
-    Nothing -> pure NoChannelFound
-
-joinChannel' :: UniqueRequester -> InChan s -> ChanUUID -> ChannelMap c s -> IO BackhandChannelStatus
-joinChannel' rid inChan uuid cmap =
-  atomically $ joinChannel rid inChan uuid cmap
-
-leaveChannel ::  ChannelMap c s -> UniqueRequester -> ChanUUID -> IO ()
-leaveChannel cmap rid chanUUID = atomically $ do
-  channel <- M.lookup chanUUID cmap
-  case channel of
-    Just (r, _) ->
-      M.delete rid r
+    Just Channel{ clients } -> do
+      addClient client clients
+      pure $ Right ()
     Nothing ->
-      pure ()
+      pure $ Left ChannelNotFound
 
-sendMessage :: ChannelMap c s -> ConnectionData c -> IO BackhandMessageStatus
-sendMessage cmap (ConnectionData chanUUID moduleUUID clientMessage) = do
-  modChan <- atomically $ do
-    channel <- M.lookup chanUUID cmap
+joinChannelIO :: Client s -> UUID -> Channels t c s -> IO (Either BackhandErrorCase ())
+joinChannelIO client uuid channels =
+  atomically $ joinChannel client uuid channels
+
+-- Utility --
+
+leaveChannel ::  Channels t c s -> Client s -> UUID -> IO (Either BackhandErrorCase ())
+leaveChannel channels client uuid = atomically $ do
+  channel <- M.lookup uuid (unChannels channels)
+  case channel of
+    Just Channel{ clients } -> do
+      delClient client clients
+      pure $ Right ()
+    Nothing ->
+      pure $ Left ChannelNotFound
+
+-- | Sending a message from a Client's handler to a Service.
+sendMessage :: (Eq t, Hashable t) => Channels t c s -> ConnectionData t c -> IO (Either BackhandErrorCase ())
+sendMessage channels ConnectionData{ uuid, service, message } = do
+  serviceChan <- atomically $ do
+    channel <- M.lookup uuid (unChannels channels)
     case channel of
-      Just (_, m) ->
-        M.lookup moduleUUID m
+      Just Channel{ services } ->
+        M.lookup service (unServices services)
       Nothing ->
         pure Nothing
-  case modChan of
+  case serviceChan of
     Just chan -> do
-      writeChan chan clientMessage
-      pure SendSuccess
+      writeChan chan message
+      pure $ Right ()
     Nothing ->
-      pure SendFailure
+      pure $ Left SendFailed
 
-findChannel :: ChannelMap c s -> ChanUUID -> IO (Maybe (ChanUUID, [Text]))
-findChannel cmap uuid =
+findChannel :: Channels t c s -> UUID -> IO (Maybe (UUID, [t]))
+findChannel channels uuid =
   atomically $ do
-    channel <- M.lookup uuid cmap
+    channel <- M.lookup uuid (unChannels channels)
     case channel of
-      Just (_, moduleMap) -> do
-        modules <- fold (\ r (mText, _) -> pure (mText : r) ) [] $ M.stream moduleMap
-        pure $ Just (uuid, modules)
+      Just Channel{ services } -> do
+        servicel <- fold (\ r (mText, _) -> pure (mText : r) ) [] $ M.stream (unServices services)
+        pure $ Just (uuid, servicel)
       Nothing -> pure Nothing
 
--- | If channel exists by our `ChanUUID`
-isChannelPresent :: ChannelMap c s -> ChanUUID -> IO Bool
-isChannelPresent cmap chanUUID = do
-  channel <- atomically $ M.lookup chanUUID cmap
+-- | If channel exists by our `UUID`
+isChannelPresent :: Channels t c s -> UUID -> IO Bool
+isChannelPresent channels uuid = do
+  channel <- atomically $ M.lookup uuid (unChannels channels)
   pure $ case channel of
     Just _ -> True
     Nothing -> False
 
-broadcast :: Requesters s -> s -> IO ()
-broadcast rmap reply = do
+broadcast :: Clients s -> s -> IO ()
+broadcast clients reply = do
   channels <- atomically $
-    fold (\ r (_, inChan) -> pure (inChan : r) ) [] (M.stream rmap)
+    fold (\ r (_, inChan) -> pure (inChan : r) ) [] $ M.stream (unClients clients)
   mapM_ (`writeChan` reply) channels
 
-broadcastOthers :: UniqueRequester -> Requesters s -> s -> IO ()
-broadcastOthers requester rmap reply = do
+broadcastOthers :: Unique -> Clients s -> s -> IO ()
+broadcastOthers u clients reply = do
   channels <- atomically $
-    fold (\ r (requester', inChan) ->
-            if requester' /= requester
+    fold (\ r (u', inChan) ->
+            if u' /= u
             then pure (inChan : r)
             else pure r
-         ) [] (M.stream rmap)
+         ) [] $ M.stream (unClients clients)
   mapM_ (`writeChan` reply) channels
 
-data BackhandChannelStatus
-  = NoChannelFound
-  | ChannelJoinSuccess
+-- | Likely you'll want to know if something goes wrong and then either report
+-- or ignore the outcome. Handling these manually might be a little cumbersome,
+-- but if you pass it to a system that takes errors and returns them to a person
+-- of interest or log them somewhere then it might be more useful.
+data BackhandErrorCase
+  = ChannelNotFound
+  | SendFailed
   deriving Generic
 
-instance FromJSON BackhandChannelStatus
-instance ToJSON BackhandChannelStatus
-
-data BackhandMessageStatus
-  = SendFailure
-  | SendSuccess
-  deriving Generic
-
-instance FromJSON BackhandMessageStatus
-instance ToJSON BackhandMessageStatus
+instance ToJSON BackhandErrorCase

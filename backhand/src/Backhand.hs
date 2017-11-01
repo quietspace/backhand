@@ -1,46 +1,24 @@
-module Backhand
--- * Aliases
-  ( Unagi
-   -- * Channel
-  , Channel
-  , newChannel
-  , ChannelMap
-  , newChannelMap
-  , newChannelMapIO
-  , addChannel
-  , addChannel'
-  , addNewChannel
-  , joinChannel
-  , joinChannel'
-  , leaveChannel
-  , sendMessage
-  , findChannel
-  , isChannelPresent
-  , broadcast
-  , broadcastOthers
-  , delChannel
-  , delChannel'
-  , Requesters
-  , newRequester
-  , Modules
-  , newModule
-   -- * Lobby
-  , Lobby
-  , newLobby
-   -- * Unique Identifiers
-  , ChanUUID(..)
-  , newChanUUID
-  , UniqueRequester
-  , newRequesterId
-   -- * Message types
-  , Message
-  , ConnectionData(..)
-   -- * Status
-  , BackhandChannelStatus(..)
-  , BackhandMessageStatus(..)
+{-# LANGUAGE PackageImports #-}
+
+module Backhand (
+  -- * Modules
+  module Backhand.Channel,
+  module Backhand.Lobby,
+  module Backhand.Message,
+  module Backhand.Unagi,
+
+  -- * Re-Exports
+  -- ** "Control.Concurrent.Unique"
+  Unique,
+  -- ** "Data.UUID"
+  UUID,
   ) where
+
+import "unique" Control.Concurrent.Unique (Unique)
+import "aeson" Data.Aeson ()
+import "uuid" Data.UUID (UUID)
 
 import Backhand.Channel
 import Backhand.Lobby
 import Backhand.Message
-import Backhand.Unique
+import Backhand.Unagi

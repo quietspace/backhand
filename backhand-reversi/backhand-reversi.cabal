@@ -1,23 +1,21 @@
 name:                backhand-reversi
-version:             0.1.0.0
-synopsis:            Reversi module for backhand
+version:             0.1.0
+synopsis:            Reversi service for backhand
 description:         Please see README.md
 license:             MIT
 license-file:        LICENSE
-author:              Michael Borden
+author:              Andrew Okin
 maintainer:          Michael Borden <michael@quiet.space>
-copyright:           2015 Quiet Space
-category:            Web
+copyright:           2017 Quiet Space
+
 build-type:          Simple
 cabal-version:       >=1.10
 
 library
   hs-source-dirs:      src
-  exposed-modules:     Backhand.Modules.Reversi
-                     , Game.Reversi
+  exposed-modules:     Game.Reversi
   build-depends:       base >= 4.7 && < 5
                      , backhand
                      , matrix
                      , text
-                     , unagi-chan >= 0.4
   default-language:    Haskell2010

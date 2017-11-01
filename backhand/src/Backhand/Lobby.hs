@@ -1,13 +1,17 @@
 {-# LANGUAGE TupleSections #-}
+
 module Backhand.Lobby where
 
-import Control.Concurrent.STM
+import Data.UUID
+
 import Backhand.Channel
-import Backhand.Unique
 
-type Lobby c s = (Channel c s, ChannelMap c s)
+data Lobby t c s = Lobby
+  { channel :: Channel t c s
+  , channels :: Channels t c s
+  }
 
-newLobby :: IO (ChanUUID, Lobby c s)
+newLobby :: IO (UUID, Lobby t c s)
 newLobby =
-  let toLobby (uid,chan) chmap = (uid, (chan, chmap))
-  in pure toLobby <*> newChannel <*> atomically newChannelMap
+  let toLobby (uid,chan) chans = (uid, Lobby chan chans)
+  in pure toLobby <*> newChannel <*> newChannelsIO

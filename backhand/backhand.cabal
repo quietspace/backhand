@@ -19,12 +19,12 @@ library
                   , Backhand.Channel
                   , Backhand.Lobby
                   , Backhand.Message
+                  , Backhand.Unagi
   build-depends:    base >= 4.8 && < 5
                   , aeson
                   , hashable
                   , list-t
                   , random
-                  , semigroupoids
                   , stm
                   , stm-containers
                   , text

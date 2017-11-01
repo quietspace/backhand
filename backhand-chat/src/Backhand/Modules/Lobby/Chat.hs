@@ -8,7 +8,6 @@ import qualified Control.Concurrent.Chan.Unagi as U
 
 import Backhand
 import Backhand.Message
-import Backhand.Unique
 import Control.Concurrent.STM
 import Data.Hashable
 import Data.Unique
@@ -23,9 +22,9 @@ startLobbyChat ids fn chan = do
     case fn rmsg of
       _ -> pure ()
 
-generateChatId :: UniqueModuleId -> UniqueRequesterId -> ChatId
-generateChatId (UniqueModuleId umid) (UniqueRequesterId urid) =
-    ChatId $ hashWithSalt (hashUnique umid) (hashUnique urid)
+-- generateChatId :: UniqueModuleId -> UniqueRequesterId -> ChatId
+-- generateChatId (UniqueModuleId umid) (UniqueRequesterId urid) =
+--     ChatId $ hashWithSalt (hashUnique umid) (hashUnique urid)
 
 data LobbyChatMsg
     = Msg T.Text

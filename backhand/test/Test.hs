@@ -48,7 +48,7 @@ genChannelId :: Gen ChannelId
 genChannelId = ChannelId <$> arbitrarySizedBoundedIntegral
 
 data Model = Model
-    { mChannels :: Map.Map ChannelId ChanUUID
+    { mChannels :: Map.Map ChannelId UUID
     , mNext :: ChannelId
     }
 

@@ -2,7 +2,7 @@ flags: {}
 extra-package-dbs: []
 packages:
 - '.'
-- ../../backhand
+- ../backhand
 extra-deps:
 - unagi-chan-0.4.0.0
 resolver: lts-9.5
